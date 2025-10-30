@@ -1,0 +1,148 @@
+"use client";
+import { motion } from 'framer-motion';
+import React from 'react';
+import { WAND_RING_OFFSET_PX } from '../../lib/utils';
+
+type Props = {
+  categoryId?: string;
+  active?: boolean;
+  imageSrc?: string;
+  heightPx?: number;
+  ringRightPx?: number; // offset from the container's right edge in px
+  ringTopPx?: number;   // offset from the container's top edge in px
+  showMarker?: boolean; // visual debug helper
+};
+
+export function BubbleWand({
+  categoryId,
+  active = false,
+  imageSrc = '/wand.png',
+  heightPx = 540,
+  ringRightPx = 0,
+  ringTopPx = 170,
+  showMarker = false,
+}: Props) {
+  // Stylized soap wand with wavy inner ring and handle.
+  return (
+    <motion.div
+      key={categoryId || 'none'}
+      className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2"
+      initial={{ x: 120, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ opacity: 0, x: 80 }}
+      transition={{ type: 'spring', stiffness: 120, damping: 16 }}
+    >
+      <div className="relative" style={{ height: `${heightPx}px`, width: '320px' }}>
+        {/* External image wand */}
+        <img src={imageSrc} alt="Bubble wand" className="absolute right-0 top-0 w-auto object-contain" style={{ height: `${heightPx}px` }} />
+
+        {/* Invisible marker positioned at ring center (tune percentages if needed) */}
+        <div
+          id="bubble-wand-ring"
+          className={`absolute ${showMarker ? 'bg-red-500/40 rounded-full' : ''}`}
+          style={{ right: `${ringRightPx}px`, top: `${ringTopPx}px`, width: '14px', height: '14px', transform: 'translate(50%, -50%)' }}
+        />
+
+        {/* Emission gust when active */}
+        {active && (
+          <>
+            {[0, 0.2, 0.4].map((delay, i) => (
+              <Gust key={i} rightPx={ringRightPx - 0} topPx={ringTopPx - 98} delay={delay} />
+            ))}
+          </>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function Gust({ rightPx, topPx, delay = 0 }: { rightPx: number; topPx: number; delay?: number }) {
+  const W = 540;
+  return (
+    <motion.svg
+      className="absolute pointer-events-none"
+      style={{ right: `${rightPx}px`, top: `${topPx}px` }}
+      width={360}
+      height={200}
+      viewBox={`0 0 360 200`}
+      fill="none"
+      initial={{ opacity: 0, x: 10, y: 0 }}
+      animate={{ opacity: [0, 1, 0.85, 0], x: [-120], y: [-8] }}
+      transition={{ duration: 1.4, delay, ease: 'easeOut' }}
+    >
+      <defs>
+        {/* Bright near the wand (right), fading left */}
+        <linearGradient id="gustStroke" x1="1" y1="0" x2="0" y2="0">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+          <stop offset="60%" stopColor="#ffffff" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
+        <filter id="gustSoft">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1" />
+        </filter>
+      </defs>
+      <g transform={`scale(-1,1) translate(-360,0)`}>
+        {/* streams originate at ring center */}
+        {/* shorter flowing curves starting at the ring */}
+        <motion.path
+          d="M340 100 C 300 88, 260 94, 220 104 S 120 126, 20 118"
+          stroke="url(#gustStroke)"
+          strokeWidth="5"
+          fill="none"
+          filter="url(#gustSoft)"
+          strokeLinecap="round"
+          initial={{ pathLength: 0, pathOffset: 1 }}
+          animate={{ pathLength: 1, pathOffset: 0 }}
+          transition={{ duration: 1.1, delay: delay + 0.05, ease: 'easeOut' }}
+        />
+        <motion.path
+          d="M340 112 C 300 104, 260 110, 215 120 S 110 142, 10 136"
+          stroke="url(#gustStroke)"
+          strokeWidth="4.2"
+          fill="none"
+          filter="url(#gustSoft)"
+          strokeLinecap="round"
+          initial={{ pathLength: 0, pathOffset: 1 }}
+          animate={{ pathLength: 1, pathOffset: 0 }}
+          transition={{ duration: 1.15, delay: delay + 0.07, ease: 'easeOut' }}
+        />
+        <motion.path
+          d="M340 88 C 302 82, 262 86, 222 96 S 128 114, 24 108"
+          stroke="url(#gustStroke)"
+          strokeWidth="3.6"
+          fill="none"
+          filter="url(#gustSoft)"
+          strokeLinecap="round"
+          initial={{ pathLength: 0, pathOffset: 1 }}
+          animate={{ pathLength: 1, pathOffset: 0 }}
+          transition={{ duration: 1.2, delay: delay + 0.09, ease: 'easeOut' }}
+        />
+      </g>
+    </motion.svg>
+  );
+}
+
+
+/* What each value does
+
+ringRightPx
+Distance in pixels from the wand container’s right edge to the marker.
+Increase ringRightPx → moves the marker LEFT.
+Decrease ringRightPx → moves the marker RIGHT (closer to the image’s right edge).
+ringTopPx
+Distance in pixels from the wand container’s top edge to the marker.
+Increase ringTopPx → moves the marker DOWN.
+Decrease ringTopPx → moves the marker UP.
+width/height (of the marker)
+Size of the invisible target we measure. Doesn’t change the wand; useful only for the debug dot’s size.
+transform: 'translate(50%, -50%)'
+Shifts the marker box by +50% in X and -50% in Y, so the marker’s center is used as the spawn origin while letting you position it with ringRightPx/topPx at the “center-right” edge of the opening.
+You can set it to 'translate(-50%, -50%)' to anchor using left/top instead, but with ringRightPx it’s convenient to keep as is.
+Move the entire wand (if needed)
+
+In BubbleWand.tsx, the outer element is absolutely positioned:
+className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2"
+Adjust right-0 or top-1/2 (e.g., right-4, top-[60%]) to move the wand.
+The image size is controlled by heightPx; bump it up to enlarge the wand.
+After you adjust ringRightPx and ringTopPx so the red dot sits at the center-right of the ring opening, bubbles will emit precisely from there on load and on category switches.
+*/
