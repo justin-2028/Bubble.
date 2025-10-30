@@ -1,4 +1,4 @@
-# Bubble — Personal Relationship Tracker
+# Bubble.
 
 Modern Next.js 14+ app to track personal relationships with an interactive, physics-inspired bubble visualization. People appear as realistic bubbles on a time-based x‑axis with category‑specific white gradients, a left‑side danger zone, and delightful animations.
 
