@@ -2,8 +2,17 @@
 import { motion } from 'framer-motion';
 import React, { useMemo, useCallback, useRef, useState, useLayoutEffect } from 'react';
 import { Category, Person } from '../../lib/types';
-import { horizontalRatio, xPercentFromPerson, clamp, mapToViewportPercent, WAND_RING_OFFSET_PX } from '../../lib/utils';
+import {
+  horizontalRatio,
+  xPercentFromPerson,
+  clamp,
+  mapToViewportPercent,
+  WAND_RING_OFFSET_PX,
+  categoryTimeLimitDays,
+  daysBetween,
+} from '../../lib/utils';
 import { FluidGlass } from './FluidGlass';
+import dynamic from 'next/dynamic';
 import { useBubbleStore } from '../../store/useBubbleStore';
 
 type Props = {
@@ -156,12 +165,23 @@ export function BubbleField({ category, people, onEditPerson, entranceActive = f
     return map;
   }, [people, category, bounds.width, bounds.height, radius, dragY, draggingId]);
 
+  const enable3D = process.env.NEXT_PUBLIC_BUBBLE_3D === '1';
+
   return (
     <div ref={containerRef} className="absolute inset-0" aria-label="Bubble field">
       {people.map((p, i) => {
         const xRightPercent = category ? xPercentFromPerson(p, category) : 100;
         const overdueRatio = category ? horizontalRatio(p, category) : 0;
-        const isDanger = overdueRatio >= 1.0;
+        // Trigger danger ring starting 3 days before the limit
+        let isDanger = false;
+        if (category) {
+          const limitDays = categoryTimeLimitDays(category);
+          const lastMs = Date.parse(p.lastInteraction as any);
+          const last = Number.isFinite(lastMs) ? new Date(lastMs) : new Date();
+          const daysAgo = daysBetween(new Date(), last);
+          const dangerStart = Math.max(0, limitDays - 3);
+          isDanger = daysAgo >= dangerStart;
+        }
         const y = resolvedY[p.id] ?? p.yPosition; // 0..100 after resolution
         const cw = bounds.width || (containerRef.current?.getBoundingClientRect().width ?? 0);
         const ch = bounds.height || (containerRef.current?.getBoundingClientRect().height ?? (typeof window !== 'undefined' ? window.innerHeight : 0));
@@ -210,16 +230,23 @@ export function BubbleField({ category, people, onEditPerson, entranceActive = f
             <div className="flex flex-col items-center">
               <button
                 type="button"
-                className={`bubble ${draggingId === p.id ? 'bubble-wobble' : ''} ${isDanger ? 'bubble-danger' : ''}`}
+                className={`bubble ${enable3D ? 'bubble-3d' : ''} ${draggingId === p.id ? 'bubble-wobble' : ''} ${isDanger ? 'bubble-danger' : ''}`}
                 style={{ width: `${radius}vmin`, height: `${radius}vmin` }}
                 onClick={(e) => onEditPerson(p.id)}
               >
-                <FluidGlass />
-                {p.image && (
-                  <div className="absolute inset-1 rounded-full overflow-hidden" style={{ filter: 'saturate(1.05) contrast(1.05)' }}>
-                    <img src={p.image} alt={p.fullName} className="h-full w-full object-cover" style={{ transform: 'translate(1%, -1%) scale(1.02)' }} />
+                {/* Render mode: 3D or CSS + image fill */}
+                {enable3D ? (
+                  <div className="absolute inset-0 rounded-full overflow-hidden">
+                    <Bubble3DClient imageUrl={p.image} gradientColors={category?.gradientColors} />
                   </div>
+                ) : (
+                  p.image && (
+                    <div className="absolute inset-1 rounded-full overflow-hidden">
+                      <img src={p.image} alt={p.fullName} className="h-full w-full object-cover" />
+                    </div>
+                  )
                 )}
+                <FluidGlass />
               </button>
               <div className="mt-2 text-center" style={{ width: `${radius}vmin` }}>
                 <div className="font-body tracking-tight-ui text-gray-800 leading-snug" style={nameStyle}>{p.fullName}</div>
@@ -231,3 +258,6 @@ export function BubbleField({ category, people, onEditPerson, entranceActive = f
     </div>
   );
 }
+
+// Dynamically load the 3D bubble to avoid SSR + ensure WebGL only on client
+const Bubble3DClient = dynamic(() => import('./Bubble3D').then(m => m.Bubble3D), { ssr: false });

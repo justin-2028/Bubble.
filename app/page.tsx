@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useBubbleStore } from '../store/useBubbleStore';
 import { Category, Person } from '../lib/types';
 import { BubbleField } from '../components/visual/BubbleField';
@@ -11,8 +11,11 @@ import { AddEditPersonModal } from '../components/ui/modals/AddEditPersonModal';
 import { EditCategoryModal } from '../components/ui/modals/EditCategoryModal';
 import { BubbleWand } from '../components/visual/BubbleWand';
 import { XAxis } from '../components/visual/XAxis';
+//
+import { LocalFileSync } from '@/components/ui/LocalFileSync';
 
 export default function Page() {
+  const CLOUD_SYNC = false; // local-only mode
   const { categories, people, currentCategoryId } = useBubbleStore();
   const [showAdd, setShowAdd] = useState(false);
   const [editPersonId, setEditPersonId] = useState<string | null>(null);
@@ -20,6 +23,8 @@ export default function Page() {
   const [entrance, setEntrance] = useState(false);
   const [entranceEpoch, setEntranceEpoch] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasFetchedRef = useRef(false);
 
   // Wait for Zustand rehydration to avoid flashing the default category
   useEffect(() => {
@@ -28,10 +33,20 @@ export default function Page() {
       setHydrated(true);
       return;
     }
+    // Immediate check
     setHydrated(persist.hasHydrated?.() ?? false);
+    // Event-based hydration
     const unsub = persist.onFinishHydration?.(() => setHydrated(true));
+    // Failsafe polling in case onFinishHydration isn't available in this env
+    const poll = setInterval(() => {
+      if (persist.hasHydrated?.()) {
+        setHydrated(true);
+        clearInterval(poll);
+      }
+    }, 250);
     return () => {
       if (typeof unsub === 'function') unsub();
+      clearInterval(poll);
     };
   }, []);
   // Play wand emission on initial load and every category switch, after hydration
@@ -54,11 +69,30 @@ export default function Page() {
 
   const currentPeople = useMemo(() => people.filter((p) => p.categoryId === currentCategory?.id), [people, currentCategory?.id]);
 
+  // Cloud sync disabled
+  useEffect(() => {
+    if (!CLOUD_SYNC) return;
+  }, [hydrated, status]);
+
+  // Debounced push disabled
+  const cats = useBubbleStore((s) => s.categories);
+  const ppl = useBubbleStore((s) => s.people);
+  const exportData = useBubbleStore((s) => s.exportData);
+  useEffect(() => {
+    if (!CLOUD_SYNC) return;
+  }, [status, cats, ppl, exportData]);
+
   if (!hydrated) {
     return (
-      <main className="relative h-[100dvh] overflow-hidden" />
+      <main className="relative h-[100dvh] overflow-hidden white-gradient">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="glass rounded-xl px-4 py-2 text-sm text-gray-700">Loading…</div>
+        </div>
+      </main>
     );
   }
+
+  // No auth mode: always render the app
 
   return (
     <main className="relative h-[100dvh] overflow-hidden">
@@ -86,10 +120,12 @@ export default function Page() {
       {/* Bubbles */}
       <BubbleField category={currentCategory} people={currentPeople} onEditPerson={setEditPersonId} entranceActive={entrance} entranceSeed={entranceEpoch} />
 
-      {/* Top-right utilities: clock + add */}
+      {/* Top-right utilities: clock + add + auth */}
       <div className="fixed top-4 right-4 z-30 flex items-center gap-3">
         <ClockPT />
         <FABAddPerson onClick={() => setShowAdd(true)} />
+        {/* Local file mode controls (Chrome/Edge). Hidden in unsupported browsers. */}
+        <LocalFileSync />
       </div>
 
       {/* Modals */}

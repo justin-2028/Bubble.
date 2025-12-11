@@ -134,7 +134,16 @@ export const useBubbleStore = create<State & Actions>()(
 
       deletePerson: (id) => set((s) => ({ people: s.people.filter((x) => x.id !== id) })),
 
-      importData: (data) => set({ categories: data.categories, people: data.people, currentCategoryId: data.categories[0]?.id ?? null }),
+      importData: (data) =>
+        set((s) => {
+          const categories = data.categories;
+          const people = data.people;
+          // Preserve currentCategoryId if it still exists after import; otherwise fallback to first
+          const keepId = s.currentCategoryId && categories.some((c) => c.id === s.currentCategoryId)
+            ? s.currentCategoryId
+            : categories[0]?.id ?? null;
+          return { categories, people, currentCategoryId: keepId };
+        }),
 
       exportData: () => ({ version: 1, categories: get().categories, people: get().people })
     }),
@@ -143,4 +152,3 @@ export const useBubbleStore = create<State & Actions>()(
     }
   )
 );
-

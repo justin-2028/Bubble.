@@ -164,3 +164,25 @@ body {
 .white-gradient {
   background: radial-gradient(120% 120% at 20% 10%, #ffffff 0%, #f7f7f7 35%, #f2f2f2 60%, #ededed 100%);
 }
+
+/* Spike tip twinkles */
+
+.spike-twinkle {
+  opacity: 0;
+  animation: twinkleBlink var(--twinkle-dur, 10s) ease-in-out infinite;
+}
+
+@keyframes twinkleBlink {
+  0%, 96% { opacity: 0; }
+  98% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spike-twinkle { opacity: 0.35; }
+}
+/* When rendering 3D, make the base shell transparent so the 3D canvas drives the look */
+.bubble-3d {
+  background: transparent !important;
+  box-shadow: none !important;
+}

@@ -4,15 +4,24 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "next dev",
+    "dev:clean": "rm -rf .next && next dev",
+    "clean": "rm -rf .next",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:generate": "echo 'prisma disabled'",
+    "db:migrate": "echo 'prisma disabled'",
+    "db:deploy": "echo 'prisma disabled'"
   },
   "dependencies": {
+    "@react-three/drei": "^9.103.0",
+    "@react-three/fiber": "^8.15.13",
     "framer-motion": "^11.0.0",
     "next": "^14.2.33",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "three": "^0.160.0",
+    "zod": "^3.23.8",
     "zustand": "^4.5.2"
   },
   "devDependencies": {
@@ -21,7 +30,7 @@
     "@types/react-dom": "^18.2.22",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.4",
+    "eslint-config-next": "^16.0.3",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.4.5"

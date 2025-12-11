@@ -1,6 +1,9 @@
 export const metadata = {
   title: 'Bubble.',
-  description: 'Google Sheets and CRMs suck.'
+  description: 'Google Sheets and CRMs suck.',
+  icons: {
+    icon: '/icon.png'
+  }
 };
 
 import './globals.css';
@@ -25,4 +28,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-
