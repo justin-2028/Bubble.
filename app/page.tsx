@@ -70,17 +70,9 @@ export default function Page() {
   const currentPeople = useMemo(() => people.filter((p) => p.categoryId === currentCategory?.id), [people, currentCategory?.id]);
 
   // Cloud sync disabled
-  useEffect(() => {
-    if (!CLOUD_SYNC) return;
-  }, [hydrated, status]);
-
-  // Debounced push disabled
   const cats = useBubbleStore((s) => s.categories);
   const ppl = useBubbleStore((s) => s.people);
   const exportData = useBubbleStore((s) => s.exportData);
-  useEffect(() => {
-    if (!CLOUD_SYNC) return;
-  }, [status, cats, ppl, exportData]);
 
   if (!hydrated) {
     return (

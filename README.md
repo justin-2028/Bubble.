@@ -45,78 +45,29 @@ Switzer (display): Using a system fallback initially. To use Switzer:
 ## Example Data
 On first run, the app seeds 3 example categories and 10 people. You can reset by using Import/Export → Reset.
 
-## Roadmap (Phase 2)
-- Auth (NextAuth.js), cloud DB, reminders, analytics, collaboration.
+## Cloud Sync / Auth
+Earlier prototypes included Supabase/Prisma + NextAuth for cloud storage. This branch is intentionally local-only: all categories/people stay in the browser (or an optional synced JSON file). If you decide to add a backend later, you can reintroduce an `/api/data` route and whichever auth/data stack you prefer.
 
-## Auth (Optional)
-The project includes password-based auth using NextAuth + Prisma (Postgres). In this local‑only build, cloud data sync is disabled and your bubbles stay on your device (localStorage/File Sync). You can still keep the auth screens for future use or remove them if not needed.
+## Deployment Checklist
 
-Setup:
-
-1) Env vars
-
-```
-cp .env.local.example .env.local
-# Set NEXTAUTH_SECRET (generate with: openssl rand -base64 32)
-```
-
-2) Install deps
-
-```
-npm install
-```
-
-3) Init database
-
-```
-npx prisma migrate dev --name init
-```
-
-Run dev:
-
-```
-npm run dev
-```
-
-Authentication screens and server sync are removed in this local‑only build.
-
-## Cloud Sync (Disabled)
-Earlier versions supported syncing categories/people to a Postgres database (e.g., Supabase) via `/api/data`. In this build that endpoint is removed and the app operates entirely locally. If you plan to re-enable cloud sync later, you can restore an `/api/data` route and wire Prisma to your DB.
-
-## Security Deployment Checklist
-
-Use this checklist before making the project public and deploying:
+Use this list before making the project public:
 
 - Secrets
-  - Rotate any secrets committed locally (DB password, `NEXTAUTH_SECRET`) if they were ever shared.
-  - Set `NEXTAUTH_SECRET`, `DATABASE_URL`, and `DIRECT_URL` in your hosting provider; never commit real secrets.
-  - Use a dedicated DB user with least privileges, not the `postgres` superuser.
+  - No database credentials are required in this build. If you later add a backend, keep secrets out of the repo and rotate anything previously committed.
 
 - Headers & CSP
-  - Security headers and a CSP are configured in `next.config.mjs`. If you change fonts or add external resources, update the CSP sources accordingly.
-  - Serve over HTTPS only; enable HSTS (already configured).
+  - Security headers and a CSP are configured in `next.config.mjs`. Update the CSP if you add new external fonts, APIs, or image hosts.
+  - Serve over HTTPS only; keep HSTS enabled.
 
-- API hardening
-  - Auth routes are rate limited via `middleware.ts`. For production-grade limits across regions/instances, replace the in-memory limiter with a shared store (e.g., Upstash Redis).
-
-- Images
-  - Currently only data URLs are stored for person images and are size‑capped. If you introduce remote images or `next/image`, explicitly allow only needed hosts.
-
-- NextAuth
-  - Confirm `NEXTAUTH_URL` matches your production domain (including `https://`).
-  - Consider enabling additional providers only as needed and review their security notes.
-
--- Database (only if you re-enable cloud sync or keep auth)
-  - Run migrations in production: `npx prisma migrate deploy`.
-  - Ensure `DIRECT_URL` is used only for migrations; app traffic should use the pooled `DATABASE_URL`.
+- Data handling
+  - Local File Sync writes directly to a user-selected JSON file. Make sure your deployment platform supports the File System Access API (Chromium-based browsers).
+  - If you add remote image hosting or `next/image`, explicitly configure allowed domains.
 
 - Monitoring
-  - Enable logging/alerts for 4xx/5xx on `/api/auth/*` if auth is enabled.
-  - Track rate-limit responses (HTTP 429) to tune thresholds.
+  - Track client errors and performance (e.g., via Vercel Web Analytics or your preferred tool) to catch rendering issues.
 
 After deploy, smoke test:
 
-- Sign up, sign in/out flows.
 - File Sync: connect a local JSON and verify automatic saves.
 - Import/export JSON manually if preferred.
-- Image upload and rendering.
+- Image upload, drag interactions, and the timeline layout.

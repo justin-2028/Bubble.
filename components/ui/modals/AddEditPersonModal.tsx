@@ -4,6 +4,13 @@ import { useBubbleStore } from '../../../store/useBubbleStore';
 import { Person } from '../../../lib/types';
 import { GlassButton } from '../GlassButton';
 
+function toDateInputValue(d: Date) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -15,11 +22,13 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
   const { categories, addPerson, updatePerson, deletePerson, people } = useBubbleStore();
   const editing = useMemo<Person | undefined>(() => people.find((p) => p.id === personId), [people, personId]);
 
+  const todayMax = useMemo(() => toDateInputValue(new Date()), []);
   const [fullName, setFullName] = useState('');
   const [categoryId, setCategoryId] = useState<string | undefined>(defaultCategoryId);
   const [context, setContext] = useState('');
-  const [lastInteraction, setLastInteraction] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [lastInteraction, setLastInteraction] = useState<string>(todayMax);
   const [image, setImage] = useState<string | undefined>(undefined);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
     if (editing) {
@@ -32,17 +41,19 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
       setFullName('');
       setCategoryId(defaultCategoryId);
       setContext('');
-      setLastInteraction(new Date().toISOString().slice(0, 10));
+      setLastInteraction(todayMax);
       setImage(undefined);
     }
-  }, [editing, defaultCategoryId, open]);
+  }, [editing, defaultCategoryId, open, todayMax]);
 
   if (!open) return null;
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!categoryId || !fullName.trim()) return;
-    const iso = new Date(lastInteraction).toISOString();
+    // Prevent future dates (can break x-axis directionality).
+    const clamped = lastInteraction > todayMax ? todayMax : lastInteraction;
+    const iso = new Date(clamped).toISOString();
     if (editing) {
       updatePerson(editing.id, { fullName, categoryId, context, lastInteraction: iso, image });
     } else {
@@ -53,10 +64,14 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
 
   const onDelete = () => {
     if (!editing) return;
-    if (confirm('Delete this person?')) {
-      deletePerson(editing.id);
-      onClose();
-    }
+    setConfirmDeleteOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (!editing) return;
+    deletePerson(editing.id);
+    setConfirmDeleteOpen(false);
+    onClose();
   };
 
   return (
@@ -91,7 +106,16 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
           </label>
           <label className="text-sm font-body">
             <div className="mb-1 font-nav tracking-tight-ui">Last Interaction</div>
-            <input type="date" className="w-full rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2" value={lastInteraction} onChange={(e) => setLastInteraction(e.target.value)} />
+            <input
+              type="date"
+              max={todayMax}
+              className="w-full rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2"
+              value={lastInteraction}
+              onChange={(e) => {
+                const v = e.target.value;
+                setLastInteraction(v > todayMax ? todayMax : v);
+              }}
+            />
           </label>
 
           <ImageUpload image={image} setImage={setImage} />
@@ -114,6 +138,18 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
           </div>
         </div>
       </form>
+      {confirmDeleteOpen && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-label="Confirm delete">
+            <div className="text-lg font-display tracking-tight-ui mb-2">Delete this person?</div>
+            <p className="text-sm text-gray-600 mb-4">This action can’t be undone. Their bubble and history will be removed.</p>
+            <div className="flex justify-end gap-2">
+              <GlassButton type="button" onClick={() => setConfirmDeleteOpen(false)}>Cancel</GlassButton>
+              <GlassButton type="button" onClick={confirmDelete}>Delete</GlassButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -186,4 +222,3 @@ async function centerCropCircle(dataUrl: string, size = 512): Promise<string> {
   // gentle quality optimization
   return canvas.toDataURL('image/jpeg', 0.9);
 }
-

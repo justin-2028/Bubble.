@@ -12,6 +12,14 @@ export function daysBetween(a: Date, b: Date) {
   return ms / (1000 * 60 * 60 * 24);
 }
 
+// Signed day difference: positive when `a` is after `b`.
+export function daysSince(a: Date, b: Date) {
+  const ams = a?.getTime?.();
+  const bms = b?.getTime?.();
+  if (!Number.isFinite(ams) || !Number.isFinite(bms)) return 0;
+  return ((ams as number) - (bms as number)) / (1000 * 60 * 60 * 24);
+}
+
 export function categoryTimeLimitDays(category: Category) {
   const v = Math.max(1, category.timeLimitValue);
   return category.timeLimitUnit === 'months' ? v * 30 : v;
@@ -23,7 +31,8 @@ export function horizontalRatio(person: Person, category: Category): number {
   const lastMs = Date.parse(person.lastInteraction as any);
   if (!Number.isFinite(lastMs)) return 0; // treat invalid as now (far right)
   const last = new Date(lastMs);
-  const deltaDays = daysBetween(now, last);
+  // Clamp future dates to 0 days ago.
+  const deltaDays = Math.max(0, daysSince(now, last));
   const limit = Math.max(1, categoryTimeLimitDays(category));
   const ratio = deltaDays / limit;
   return ratio; // can exceed 1.0 when overdue

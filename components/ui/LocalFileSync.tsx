@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBubbleStore } from '@/store/useBubbleStore';
 import { GlassButton } from './GlassButton';
 
+type FileSystemPermissionMode = 'read' | 'readwrite';
+
 // Minimal IndexedDB helpers to persist the FileSystemFileHandle
 const DB_NAME = 'bubble-local';
 const STORE = 'kv';
@@ -36,15 +38,22 @@ async function idbDel(key: string): Promise<void> {
   await idb('readwrite', (s) => s.delete(key));
 }
 
-async function verifyPermission(handle: FileSystemFileHandle, mode: FileSystemPermissionMode = 'readwrite') {
-  // @ts-ignore types exist in modern TS DOM
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore
-  const query = await (handle as any).queryPermission?.({ mode });
-  if (query === 'granted') return true;
-  // @ts-ignore
-  const req = await (handle as any).requestPermission?.({ mode });
-  return req === 'granted';
+async function queryPermission(handle: FileSystemFileHandle, mode: FileSystemPermissionMode = 'readwrite') {
+  try {
+    const q = await (handle as any).queryPermission?.({ mode });
+    return (q as string | undefined) ?? 'prompt';
+  } catch {
+    return 'prompt';
+  }
+}
+
+async function requestPermission(handle: FileSystemFileHandle, mode: FileSystemPermissionMode = 'readwrite') {
+  try {
+    const req = await (handle as any).requestPermission?.({ mode });
+    return req === 'granted';
+  } catch {
+    return false;
+  }
 }
 
 export function LocalFileSync() {
@@ -55,10 +64,40 @@ export function LocalFileSync() {
   const ppl = useBubbleStore((s) => s.people);
 
   const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
+  const [savedHandle, setSavedHandle] = useState<FileSystemFileHandle | null>(null);
   const [status, setStatus] = useState<string>('');
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const todayDataPresent = cats.length > 0 || ppl.length > 0;
+
+  const loadFromHandle = useCallback(async (handle: FileSystemFileHandle) => {
+    try {
+      const f = await handle.getFile();
+      const text = await f.text();
+      const json = JSON.parse(text);
+      if (json && typeof json === 'object' && Array.isArray(json.categories) && Array.isArray(json.people)) {
+        importData(json);
+        setStatus('Loaded from file');
+        setTimeout(() => setStatus(''), 2000);
+        return true;
+      }
+      setStatus('Invalid data file');
+      setTimeout(() => setStatus(''), 2500);
+      return false;
+    } catch {
+      setStatus('Could not read data file');
+      setTimeout(() => setStatus(''), 2500);
+      return false;
+    }
+  }, [importData]);
+
+  const writeToHandle = useCallback(async (handle: FileSystemFileHandle) => {
+    const w = await handle.createWritable();
+    await w.write(JSON.stringify(exportData(), null, 2));
+    await w.close();
+  }, [exportData]);
 
   // Load previously connected handle
   useEffect(() => {
@@ -67,40 +106,30 @@ export function LocalFileSync() {
       try {
         const h = (await idbGet<FileSystemFileHandle>('fileHandle')) || null;
         if (!h) return;
-        const ok = await verifyPermission(h, 'readwrite');
-        if (ok) {
+        setSavedHandle(h);
+        // Query permission only here; requesting permission requires a user gesture.
+        const perm = await queryPermission(h, 'readwrite');
+        if (perm === 'granted') {
           setFileHandle(h);
           localStorage.setItem('bubble-file-connected', '1');
-          // Load data from file
-          try {
-            const f = await h.getFile();
-            const text = await f.text();
-            const json = JSON.parse(text);
-            if (json && typeof json === 'object' && Array.isArray(json.categories) && Array.isArray(json.people)) {
-              importData(json);
-              setStatus('Loaded from file');
-              setTimeout(() => setStatus(''), 2000);
-            }
-          } catch {}
-        } else {
+          await loadFromHandle(h);
+        } else if (perm === 'denied') {
           localStorage.removeItem('bubble-file-connected');
         }
       } catch {}
     })();
-  }, [supported, importData]);
+  }, [supported, loadFromHandle]);
 
   const writeNow = useCallback(async () => {
     if (!fileHandle) return;
     try {
-      const w = await fileHandle.createWritable();
-      await w.write(JSON.stringify(exportData(), null, 2));
-      await w.close();
+      await writeToHandle(fileHandle);
       setStatus('Saved');
       setTimeout(() => setStatus(''), 1500);
     } catch (e: any) {
       setStatus(e?.message || 'Save failed');
     }
-  }, [fileHandle, exportData]);
+  }, [fileHandle, writeToHandle]);
 
   // Auto-save on changes
   useEffect(() => {
@@ -109,7 +138,9 @@ export function LocalFileSync() {
     timer.current = setTimeout(() => {
       writeNow();
     }, 600);
-    return () => timer.current && clearTimeout(timer.current);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
   }, [fileHandle, cats, ppl, writeNow]);
 
   // Close menu on outside click
@@ -129,52 +160,67 @@ export function LocalFileSync() {
       const handle: FileSystemFileHandle = await (window as any).showSaveFilePicker?.({
         suggestedName: 'bubble-data.json',
         types: [
-          { description: 'JSON', accept: { 'application/json': ['.json'] } }
+          { description: 'JSON', accept: { 'application/json': ['.json'], 'text/plain': ['.json'] } }
         ]
       });
       if (!handle) return;
-      const granted = await verifyPermission(handle, 'readwrite');
+      const granted = await requestPermission(handle, 'readwrite');
       if (!granted) return;
       await idbSet('fileHandle', handle);
       setFileHandle(handle);
+      setSavedHandle(handle);
       localStorage.setItem('bubble-file-connected', '1');
-      await writeNow();
+      await writeToHandle(handle);
+      setStatus('Saved');
+      setTimeout(() => setStatus(''), 1500);
       setOpen(false);
     } catch {}
   };
 
   const useExisting = async () => {
     try {
-      // @ts-ignore
-      const [handle]: FileSystemFileHandle[] = await (window as any).showOpenFilePicker?.({
+      const openPicker = (window as any).showOpenFilePicker as undefined | ((opts: any) => Promise<FileSystemFileHandle[]>);
+      if (!openPicker) {
+        setStatus('Open picker not supported');
+        setTimeout(() => setStatus(''), 2000);
+        return;
+      }
+      const [handle]: FileSystemFileHandle[] = await openPicker({
         multiple: false,
         types: [
-          { description: 'JSON', accept: { 'application/json': ['.json'] } }
+          { description: 'JSON', accept: { 'application/json': ['.json'], 'text/plain': ['.json'] } }
         ]
       });
       if (!handle) return;
-      const ok = await verifyPermission(handle, 'readwrite');
+      const ok = await requestPermission(handle, 'readwrite');
       if (!ok) return;
       await idbSet('fileHandle', handle);
       setFileHandle(handle);
+      setSavedHandle(handle);
       localStorage.setItem('bubble-file-connected', '1');
-      // Load immediately
-      try {
-        const f = await handle.getFile();
-        const text = await f.text();
-        const json = JSON.parse(text);
-        if (json && typeof json === 'object' && Array.isArray(json.categories) && Array.isArray(json.people)) {
-          importData(json);
-          setStatus('Loaded from file');
-          setTimeout(() => setStatus(''), 2000);
-        }
-      } catch {}
+      await loadFromHandle(handle);
     } catch {}
+    setOpen(false);
+  };
+
+  const reconnectSaved = async () => {
+    if (!savedHandle) return;
+    const ok = await requestPermission(savedHandle, 'readwrite');
+    if (!ok) {
+      setStatus('Permission not granted');
+      setTimeout(() => setStatus(''), 2000);
+      return;
+    }
+    await idbSet('fileHandle', savedHandle);
+    setFileHandle(savedHandle);
+    localStorage.setItem('bubble-file-connected', '1');
+    await loadFromHandle(savedHandle);
     setOpen(false);
   };
 
   const stopSync = async () => {
     setFileHandle(null);
+    setSavedHandle(null);
     await idbDel('fileHandle');
     localStorage.removeItem('bubble-file-connected');
     setStatus('Sync stopped');
@@ -188,18 +234,35 @@ export function LocalFileSync() {
   return (
     <div className="relative" ref={rootRef}>
       <GlassButton onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
-        {fileHandle ? 'File Sync: On ▾' : 'File Sync ▾'}
+        {fileHandle ? 'File Sync: On ▾' : savedHandle ? 'File Sync: Reconnect ▾' : 'File Sync ▾'}
       </GlassButton>
       {open && (
         <div className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-white/60 bg-white/80 p-1 shadow-xl backdrop-blur">
           {!fileHandle ? (
             <>
+              {savedHandle && (
+                <button
+                  className="w-full rounded-lg px-3 py-2 text-left font-nav tracking-tight-ui hover:bg-white/70"
+                  onClick={reconnectSaved}
+                  role="menuitem"
+                >
+                  <div className="leading-tight">
+                    <div>Reconnect Last File</div>
+                    {(savedHandle as any)?.name && (
+                      <div className="mt-0.5 text-xs text-gray-600">{(savedHandle as any).name}</div>
+                    )}
+                  </div>
+                </button>
+              )}
               <button
                 className="w-full rounded-lg px-3 py-2 text-left font-nav tracking-tight-ui hover:bg-white/70"
                 onClick={createNew}
                 role="menuitem"
               >
-                Create data file
+                <div className="leading-tight">
+                  <div>Create Data File</div>
+                  {todayDataPresent && <div className="mt-0.5 text-xs text-gray-600">Export Current Data</div>}
+                </div>
               </button>
               <button
                 className="w-full rounded-lg px-3 py-2 text-left font-nav tracking-tight-ui hover:bg-white/70"

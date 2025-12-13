@@ -38,86 +38,13 @@ body {
 .bubble {
   position: relative;
   border-radius: 9999px;
-  /* inner glow + drop shadow */
-  box-shadow:
-    inset 0 0 40px rgba(255,255,255,0.65),
-    inset 20px 20px 60px rgba(255,255,255,0.35),
-    0 14px 36px rgba(0,0,0,0.18);
-  /* layered iridescent sheen */
-  background:
-    radial-gradient(120% 120% at 30% 30%, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0.22) 45%, rgba(255,255,255,0.08) 70%),
-    radial-gradient(100% 80% at 70% 70%, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.12) 65%, rgba(255,255,255,0) 100%),
-    conic-gradient(from 210deg, rgba(255,0,221,0.12), rgba(0,190,255,0.12), rgba(255,255,0,0.12), rgba(255,0,221,0.12));
-  background-blend-mode: screen, normal, screen;
-  border: 1.25px solid rgba(255,255,255,0.7);
-}
-
-.bubble::before {
-  /* bright specular highlight */
-  content: '';
-  position: absolute;
-  top: 8%; left: 12%;
-  width: 36%; height: 36%;
-  border-radius: 9999px;
-  background: radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.2) 60%, rgba(255,255,255,0) 100%);
-  filter: blur(1px);
-}
-
-.bubble::after {
-  /* refracted caustic at edge */
-  content: '';
-  position: absolute;
-  right: 10%; bottom: 8%;
-  width: 38%; height: 38%;
-  border-radius: 9999px;
-  background:
-    radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.08) 60%, rgba(255,255,255,0) 100%);
-  filter: blur(0.5px);
-  pointer-events: none;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
 }
 
 .bubble:hover {
-  box-shadow:
-    inset 0 0 50px rgba(255,255,255,0.7),
-    inset 20px 20px 70px rgba(255,255,255,0.4),
-    0 18px 42px rgba(0,0,0,0.2);
-}
-
-/* Fluid Glass overlay (inspired by reactbits fluid-glass) */
-.fluid-glass {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 2;
-  /* blur + gentle saturation for a glassy refraction */
-  backdrop-filter: blur(14px) saturate(var(--fg-intensity, 1.05)) contrast(1.02);
-  -webkit-backdrop-filter: blur(14px) saturate(var(--fg-intensity, 1.05)) contrast(1.02);
-  /* faint milky fill */
-  background:
-    radial-gradient(120% 120% at 30% 30%, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.06) 60%, rgba(255,255,255,0.02) 100%),
-    conic-gradient(from 180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02), rgba(255,255,255,0.1));
-  mix-blend-mode: screen;
-}
-
-.fluid-glass::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: conic-gradient(from 0deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 30%, rgba(255,255,255,0.18) 60%, rgba(255,255,255,0) 100%);
-  animation: spinGrad 18s linear infinite;
-  opacity: 0.9;
-}
-
-.fluid-glass::after {
-  content: '';
-  position: absolute;
-  top: 8%; left: 12%;
-  width: 46%; height: 46%;
-  border-radius: inherit;
-  background: radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.25) 60%, rgba(255,255,255,0) 100%);
-  filter: blur(0.6px);
+  box-shadow: 0 18px 42px rgba(0,0,0,0.2);
 }
 
 @keyframes spinGrad {
@@ -126,9 +53,6 @@ body {
 }
 
 /* Quick shimmer on hover */
-.bubble:hover .fluid-glass::before { animation-duration: 2.2s; }
-.bubble:hover .fluid-glass::after { animation: sheenSweep 0.9s ease-out forwards; }
-
 @keyframes sheenSweep {
   0% { transform: translateX(-40%) scale(1); opacity: 0.0; }
   30% { opacity: 0.85; }
@@ -152,6 +76,45 @@ body {
 .bubble-danger {
   box-shadow: 0 0 0 0 rgba(255,0,0,0.6);
   animation: dangerPulse 1.6s infinite;
+}
+
+.bubble-overdue {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
+  filter: drop-shadow(0 6px 10px rgba(0,0,0,0.28));
+}
+
+.bubble-overdue span {
+  position: relative;
+  width: 84%;
+  height: 84%;
+  display: block;
+}
+
+.bubble-overdue span::before,
+.bubble-overdue span::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120%;
+  height: 14%;
+  background: rgba(239, 68, 68, 0.95);
+  border-radius: 9999px;
+  transform-origin: center;
+}
+
+.bubble-overdue span::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.bubble-overdue span::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 @keyframes dangerPulse {

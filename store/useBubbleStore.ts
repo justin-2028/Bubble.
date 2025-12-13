@@ -42,7 +42,7 @@ const exampleCategories: Category[] = [
   },
   {
     id: uid('cat_'),
-    name: 'Stanford Friends',
+    name: 'Friends',
     timeLimitValue: 21,
     timeLimitUnit: 'days',
     sortOrder: 2,
