@@ -26,7 +26,8 @@ const nextConfig = {
       "frame-ancestors 'none'",
       "form-action 'self'",
       "img-src 'self' data: blob:",
-      "script-src 'self'",
+      // Next.js requires inline scripts for hydration/runtime.
+      "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "connect-src 'self'",
