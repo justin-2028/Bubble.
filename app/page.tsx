@@ -9,6 +9,7 @@ import { FABAddPerson } from '../components/ui/FABAddPerson';
 import { ClockPT } from '../components/ui/ClockPT';
 import { AddEditPersonModal } from '../components/ui/modals/AddEditPersonModal';
 import { EditCategoryModal } from '../components/ui/modals/EditCategoryModal';
+import { PoppingBubblesModal } from '../components/ui/modals/PoppingBubblesModal';
 import { BubbleWand } from '../components/visual/BubbleWand';
 import { XAxis } from '../components/visual/XAxis';
 //
@@ -20,6 +21,7 @@ export default function Page() {
   const [showAdd, setShowAdd] = useState(false);
   const [editPersonId, setEditPersonId] = useState<string | null>(null);
   const [editCategoryOpen, setEditCategoryOpen] = useState(false);
+  const [poppingOpen, setPoppingOpen] = useState(false);
   const [entrance, setEntrance] = useState(false);
   const [entranceEpoch, setEntranceEpoch] = useState(0);
   const [hydrated, setHydrated] = useState(false);
@@ -107,7 +109,12 @@ export default function Page() {
       </div>
 
       {/* Bubble wand enters from right on category change */}
-      <BubbleWand categoryId={currentCategory?.id} active={entrance} imageSrc="/newbubblewand.png" />
+      <BubbleWand
+        categoryId={currentCategory?.id}
+        active={entrance}
+        imageSrc="/newbubblewand.png"
+        onOpenLeaderboard={() => setPoppingOpen(true)}
+      />
 
       {/* Bubbles */}
       <BubbleField category={currentCategory} people={currentPeople} onEditPerson={setEditPersonId} entranceActive={entrance} entranceSeed={entranceEpoch} />
@@ -124,6 +131,13 @@ export default function Page() {
       <AddEditPersonModal open={showAdd} onClose={() => setShowAdd(false)} defaultCategoryId={currentCategory?.id} />
       <AddEditPersonModal open={!!editPersonId} onClose={() => setEditPersonId(null)} personId={editPersonId || undefined} />
       <EditCategoryModal open={editCategoryOpen} onClose={() => setEditCategoryOpen(false)} categoryId={currentCategory?.id} />
+      <PoppingBubblesModal
+        open={poppingOpen}
+        onClose={() => setPoppingOpen(false)}
+        categories={categories}
+        currentCategory={currentCategory}
+        people={people}
+      />
 
       {/* X Axis with day markers */}
       <XAxis category={currentCategory} />

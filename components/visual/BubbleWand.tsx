@@ -1,6 +1,6 @@
 "use client";
 import { motion } from 'framer-motion';
-import React from 'react';
+import React, { useLayoutEffect, useState } from 'react';
 import { WAND_RING_OFFSET_PX } from '../../lib/utils';
 
 type Props = {
@@ -11,6 +11,7 @@ type Props = {
   ringRightPx?: number; // offset from the container's right edge in px
   ringTopPx?: number;   // offset from the container's top edge in px
   showMarker?: boolean; // visual debug helper
+  onOpenLeaderboard?: () => void;
 };
 
 export function BubbleWand({
@@ -21,38 +22,94 @@ export function BubbleWand({
   ringRightPx = 0,
   ringTopPx = 170,
   showMarker = false,
+  onOpenLeaderboard,
 }: Props) {
+  const [hitRect, setHitRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!onOpenLeaderboard) return;
+    const ring = document.getElementById('bubble-wand-ring');
+    if (!ring) return;
+    const compute = () => {
+      const rr = ring.getBoundingClientRect();
+      const cx = rr.left + rr.width / 2;
+      const cy = rr.top + rr.height / 2;
+      // Approximate the "white portion" around the ring and cup area.
+      const width = 210;
+      const height = 240;
+      setHitRect({
+        left: cx - width * 0.7,
+        top: cy - height * 0.58,
+        width,
+        height,
+      });
+    };
+    compute();
+    window.addEventListener('resize', compute);
+    // Capture scroll from any container; ring position is viewport-based.
+    window.addEventListener('scroll', compute, true);
+    // Track the wand while it is animating in/out so the hit area stays aligned.
+    let raf = 0;
+    const start = performance.now();
+    const durationMs = active ? 3500 : 1200;
+    const tick = () => {
+      compute();
+      if (performance.now() - start < durationMs) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    const to = setTimeout(compute, 0);
+    return () => {
+      window.removeEventListener('resize', compute);
+      window.removeEventListener('scroll', compute, true);
+      if (raf) cancelAnimationFrame(raf);
+      clearTimeout(to);
+    };
+  }, [categoryId, onOpenLeaderboard, active]);
+
   // Stylized soap wand with wavy inner ring and handle.
   return (
-    <motion.div
-      key={categoryId || 'none'}
-      className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2"
-      initial={{ x: 120, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ opacity: 0, x: 80 }}
-      transition={{ type: 'spring', stiffness: 120, damping: 16 }}
-    >
-      <div className="relative" style={{ height: `${heightPx}px`, width: '320px' }}>
-        {/* External image wand */}
-        <img src={imageSrc} alt="Bubble wand" className="absolute right-0 top-0 w-auto object-contain" style={{ height: `${heightPx}px` }} />
-
-        {/* Invisible marker positioned at ring center (tune percentages if needed) */}
-        <div
-          id="bubble-wand-ring"
-          className={`absolute ${showMarker ? 'bg-red-500/40 rounded-full' : ''}`}
-          style={{ right: `${ringRightPx}px`, top: `${ringTopPx}px`, width: '14px', height: '14px', transform: 'translate(50%, -50%)' }}
+    <>
+      {onOpenLeaderboard && hitRect && (
+        <button
+          type="button"
+          aria-label="Open Popping Bubbles leaderboard"
+          title="Popping Bubbles"
+          onClick={onOpenLeaderboard}
+          className="fixed z-30 rounded-[999px] bg-transparent"
+          style={{ left: hitRect.left, top: hitRect.top, width: hitRect.width, height: hitRect.height }}
         />
+      )}
 
-        {/* Emission gust when active */}
-        {active && (
-          <>
-            {[0, 0.2, 0.4].map((delay, i) => (
-              <Gust key={i} rightPx={ringRightPx - 0} topPx={ringTopPx - 98} delay={delay} />
-            ))}
-          </>
-        )}
-      </div>
-    </motion.div>
+      <motion.div
+        key={categoryId || 'none'}
+        className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2"
+        initial={{ x: 120, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ opacity: 0, x: 80 }}
+        transition={{ type: 'spring', stiffness: 120, damping: 16 }}
+      >
+        <div className="relative" style={{ height: `${heightPx}px`, width: '320px' }}>
+          {/* External image wand */}
+          <img src={imageSrc} alt="Bubble wand" className="absolute right-0 top-0 w-auto object-contain" style={{ height: `${heightPx}px` }} />
+
+          {/* Invisible marker positioned at ring center (tune percentages if needed) */}
+          <div
+            id="bubble-wand-ring"
+            className={`absolute ${showMarker ? 'bg-red-500/40 rounded-full' : ''}`}
+            style={{ right: `${ringRightPx}px`, top: `${ringTopPx}px`, width: '14px', height: '14px', transform: 'translate(50%, -50%)' }}
+          />
+
+          {/* Emission gust when active */}
+          {active && (
+            <>
+              {[0, 0.2, 0.4].map((delay, i) => (
+                <Gust key={i} rightPx={ringRightPx - 0} topPx={ringTopPx - 98} delay={delay} />
+              ))}
+            </>
+          )}
+        </div>
+      </motion.div>
+    </>
   );
 }
 
