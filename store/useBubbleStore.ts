@@ -102,7 +102,7 @@ function samplePeople(cats: Category[]): Person[] {
   });
   return [
     mk('Alice Bubble', c1.id, 3, 20),
-    mk('Bob Bubble', c1.id, 9, 45),
+    mk('Bob Bubble', c1.id, 11, 45),
     mk('Dr. Patel', c2.id, 20, 30),
     mk('Prof. Nguyen', c2.id, 45, 60),
     mk('Ethan Wright', c3.id, 2, 25),
