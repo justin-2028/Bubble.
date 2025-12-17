@@ -129,7 +129,14 @@ export default function Page() {
       />
 
       {/* Bubbles */}
-      <BubbleField category={currentCategory} people={currentPeople} onEditPerson={setEditPersonId} entranceActive={entrance} entranceSeed={entranceEpoch} />
+      <BubbleField
+        category={currentCategory}
+        people={currentPeople}
+        onEditPerson={setEditPersonId}
+        entranceActive={entrance}
+        entranceSeed={entranceEpoch}
+        keyboardShortcutsEnabled={keyboardNavEnabled}
+      />
 
       {/* Top-right utilities: clock + add + auth */}
       <div className="fixed top-4 right-4 z-30 flex items-center gap-3">

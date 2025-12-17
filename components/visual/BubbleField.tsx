@@ -21,6 +21,7 @@ type Props = {
   onEditPerson: (id: string) => void;
   entranceActive?: boolean;
   entranceSeed?: number;
+  keyboardShortcutsEnabled?: boolean;
 };
 
 type BubbleLane = {
@@ -66,7 +67,14 @@ const SAFE_BOTTOM_PX = 92; // keeps clear of x-axis + bottom UI
 const MIN_SCALE = 0.62;
 const NARROW_LAYOUT_BREAKPOINT_PX = 980;
 
-export function BubbleField({ category, people, onEditPerson, entranceActive = false, entranceSeed = 0 }: Props) {
+export function BubbleField({
+  category,
+  people,
+  onEditPerson,
+  entranceActive = false,
+  entranceSeed = 0,
+  keyboardShortcutsEnabled = true,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [bounds, setBounds] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [wandOrigin, setWandOrigin] = useState<{ x: number; y: number } | null>(null);
@@ -76,11 +84,41 @@ export function BubbleField({ category, people, onEditPerson, entranceActive = f
   const [entranceToken, setEntranceToken] = useState<number>(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [showDaysOverlay, setShowDaysOverlay] = useState(false);
 
   useEffect(() => {
     setSelectedIds([]);
     setBulkOpen(false);
   }, [category?.id]);
+
+  // Spacebar toggles an overlay showing days since last interaction (only when not editing).
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled) return;
+    if (bulkOpen || selectedIds.length > 0) return;
+
+    const isEditableTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.code !== 'Space' && e.key !== ' ') return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      setShowDaysOverlay((v) => !v);
+    };
+
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [keyboardShortcutsEnabled, bulkOpen, selectedIds.length]);
+
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled || bulkOpen || selectedIds.length > 0) setShowDaysOverlay(false);
+  }, [keyboardShortcutsEnabled, bulkOpen, selectedIds.length]);
 
   useEffect(() => {
     const idSet = new Set(people.map((p) => p.id));
@@ -503,11 +541,12 @@ export function BubbleField({ category, people, onEditPerson, entranceActive = f
         // Trigger warning ring starting 3 days before the limit, swap to a red X when overdue
         let isWarning = false;
         let isOverdue = false;
+        const lastMs = Date.parse(p.lastInteraction as any);
+        const last = Number.isFinite(lastMs) ? new Date(lastMs) : new Date();
+        const daysAgo = Math.max(0, daysSince(new Date(), last));
+        const daysAgoInt = Math.floor(daysAgo + 1e-6);
         if (category) {
           const limitDays = categoryTimeLimitDays(category);
-          const lastMs = Date.parse(p.lastInteraction as any);
-          const last = Number.isFinite(lastMs) ? new Date(lastMs) : new Date();
-          const daysAgo = Math.max(0, daysSince(new Date(), last));
           const dangerStart = Math.max(0, limitDays - 3);
           isOverdue = daysAgo >= limitDays;
           isWarning = daysAgo >= dangerStart && daysAgo < limitDays;
@@ -566,6 +605,7 @@ export function BubbleField({ category, people, onEditPerson, entranceActive = f
 	                  if (e.shiftKey) {
 	                    e.preventDefault();
 	                    e.stopPropagation();
+	                    setShowDaysOverlay(false);
 	                    setSelectedIds((prev) => (prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]));
 	                    return;
 	                  }
@@ -594,6 +634,35 @@ export function BubbleField({ category, people, onEditPerson, entranceActive = f
                 {isOverdue && (
                   <div className="bubble-overdue" aria-hidden="true">
                     <span />
+                  </div>
+                )}
+                {showDaysOverlay && (
+                  <div
+                    className="absolute inset-0 flex items-center justify-center rounded-full border border-white/60 bg-white/65 backdrop-blur-lg pointer-events-none select-none"
+                    style={{ zIndex: 10 }}
+                    aria-hidden="true"
+                  >
+                    <div className="flex flex-col items-center justify-center">
+                      <div
+                        className="font-display tracking-tight-ui leading-none"
+                        style={{
+                          color: 'rgb(220 38 38 / 0.9)',
+                          fontSize: `calc(${bubbleVmin}vmin * 0.42)`,
+                        }}
+                      >
+                        {daysAgoInt}
+                      </div>
+                      <div
+                        className="font-code leading-none"
+                        style={{
+                          color: 'rgb(220 38 38 / 0.85)',
+                          fontSize: `calc(${bubbleVmin}vmin * 0.14)`,
+                          marginTop: `calc(${bubbleVmin}vmin * 0.03)`,
+                        }}
+                      >
+                        days
+                      </div>
+                    </div>
                   </div>
                 )}
               </button>
