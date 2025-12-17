@@ -12,6 +12,16 @@ function toDateInputValue(d: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function isoFromDateInputValue(dateStr: string, opts?: { preferNowIfToday?: boolean }) {
+  const [y, m, d] = dateStr.split('-').map((n) => Number(n));
+  if (!y || !m || !d) return new Date().toISOString();
+  const now = new Date();
+  if (opts?.preferNowIfToday && dateStr === toDateInputValue(now)) return now.toISOString();
+  // Use local noon to avoid UTC date shifting (and DST edge cases).
+  const local = new Date(y, m - 1, d, 12, 0, 0, 0);
+  return local.toISOString();
+}
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -43,7 +53,7 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
       setFullName(editing.fullName);
       setCategoryId(editing.categoryId);
       setContext(editing.context);
-      setLastInteraction(new Date(editing.lastInteraction).toISOString().slice(0, 10));
+      setLastInteraction(toDateInputValue(new Date(editing.lastInteraction)));
       setImage(editing.image);
       setStarred(editing.starred ?? false);
       setLabelIds(editing.labelIds ?? []);
@@ -88,7 +98,7 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
     if (!categoryId || !fullName.trim()) return;
     // Prevent future dates (can break x-axis directionality).
     const clamped = lastInteraction > todayMax ? todayMax : lastInteraction;
-    const iso = new Date(clamped).toISOString();
+    const iso = isoFromDateInputValue(clamped, { preferNowIfToday: true });
     if (editing) {
       updatePerson(editing.id, { fullName, categoryId, context, lastInteraction: iso, image, starred, labelIds });
     } else {

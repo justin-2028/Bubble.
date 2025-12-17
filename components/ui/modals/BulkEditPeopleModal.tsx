@@ -11,6 +11,16 @@ function toDateInputValue(d: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function isoFromDateInputValue(dateStr: string, opts?: { preferNowIfToday?: boolean }) {
+  const [y, m, d] = dateStr.split('-').map((n) => Number(n));
+  if (!y || !m || !d) return new Date().toISOString();
+  const now = new Date();
+  if (opts?.preferNowIfToday && dateStr === toDateInputValue(now)) return now.toISOString();
+  // Use local noon to avoid UTC date shifting (and DST edge cases).
+  const local = new Date(y, m - 1, d, 12, 0, 0, 0);
+  return local.toISOString();
+}
+
 type Props = {
   open: boolean;
   selectedPeople: Person[];
@@ -66,7 +76,7 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
 
   const updateToDate = () => {
     const clamped = date > todayMax ? todayMax : date;
-    const iso = new Date(clamped).toISOString();
+    const iso = isoFromDateInputValue(clamped, { preferNowIfToday: true });
     bulkUpdateLastInteraction(ids, iso);
     setStatusFor('Updated');
   };
