@@ -10,6 +10,7 @@ import { ClockPT } from '../components/ui/ClockPT';
 import { AddEditPersonModal } from '../components/ui/modals/AddEditPersonModal';
 import { EditCategoryModal } from '../components/ui/modals/EditCategoryModal';
 import { PoppingBubblesModal } from '../components/ui/modals/PoppingBubblesModal';
+import { SearchBubblesModal } from '../components/ui/modals/SearchBubblesModal';
 import { BubbleWand } from '../components/visual/BubbleWand';
 import { XAxis } from '../components/visual/XAxis';
 //
@@ -18,10 +19,13 @@ import { LocalFileSync } from '@/components/ui/LocalFileSync';
 export default function Page() {
   const CLOUD_SYNC = false; // local-only mode
   const { categories, people, currentCategoryId } = useBubbleStore();
+  const labels = useBubbleStore((s) => s.labels);
+  const setCurrentCategory = useBubbleStore((s) => s.setCurrentCategory);
   const [showAdd, setShowAdd] = useState(false);
   const [editPersonId, setEditPersonId] = useState<string | null>(null);
   const [editCategoryOpen, setEditCategoryOpen] = useState(false);
   const [poppingOpen, setPoppingOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [entrance, setEntrance] = useState(false);
   const [entranceEpoch, setEntranceEpoch] = useState(0);
   const [hydrated, setHydrated] = useState(false);
@@ -88,6 +92,8 @@ export default function Page() {
 
   // No auth mode: always render the app
 
+  const keyboardNavEnabled = !(showAdd || !!editPersonId || editCategoryOpen || poppingOpen || searchOpen);
+
   return (
     <main className="relative h-[100dvh] overflow-hidden">
       {/* Background gradient per category (using white shades) */}
@@ -105,7 +111,13 @@ export default function Page() {
 
       {/* Category navigation & menu */}
       <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between">
-        <CategoryNav category={currentCategory} categories={categories} onOpenCategorySettings={() => setEditCategoryOpen(true)} />
+        <CategoryNav
+          category={currentCategory}
+          categories={categories}
+          onOpenCategorySettings={() => setEditCategoryOpen(true)}
+          onOpenSearch={() => setSearchOpen(true)}
+          keyboardNavEnabled={keyboardNavEnabled}
+        />
       </div>
 
       {/* Bubble wand enters from right on category change */}
@@ -137,6 +149,19 @@ export default function Page() {
         categories={categories}
         currentCategory={currentCategory}
         people={people}
+      />
+      <SearchBubblesModal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        categories={categories}
+        currentCategory={currentCategory}
+        people={people}
+        labels={labels}
+        onSelectPerson={(personId, categoryId) => {
+          setSearchOpen(false);
+          setCurrentCategory(categoryId);
+          setEditPersonId(personId);
+        }}
       />
 
       {/* X Axis with day markers */}

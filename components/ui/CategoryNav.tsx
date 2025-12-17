@@ -8,9 +8,11 @@ type Props = {
   category?: Category;
   categories: Category[];
   onOpenCategorySettings: () => void;
+  onOpenSearch?: () => void;
+  keyboardNavEnabled?: boolean;
 };
 
-export function CategoryNav({ category, categories, onOpenCategorySettings }: Props) {
+export function CategoryNav({ category, categories, onOpenCategorySettings, onOpenSearch, keyboardNavEnabled = true }: Props) {
   const { setCurrentCategory, addCategory } = useBubbleStore();
   const [open, setOpen] = React.useState(false);
   const ordered = categories.slice().sort((a, b) => a.sortOrder - b.sortOrder);
@@ -23,21 +25,25 @@ export function CategoryNav({ category, categories, onOpenCategorySettings }: Pr
   };
 
   useEffect(() => {
+    if (!keyboardNavEnabled) return;
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase?.();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) return;
       if (e.key === 'ArrowLeft') go(-1);
       if (e.key === 'ArrowRight') go(1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category?.id, categories.length]);
+  }, [category?.id, categories.length, keyboardNavEnabled]);
 
   const idx = category ? ordered.findIndex((c) => c.id === category.id) : -1;
   const hasPrev = idx > 0;
   const hasNext = idx >= 0 && idx < ordered.length - 1;
 
-  return (
-    <div className="flex items-center gap-3">
+	  return (
+	    <div className="flex items-center gap-3">
       <GlassButton onClick={() => go(-1)} aria-label="Previous Category" disabled={!hasPrev}>←</GlassButton>
       <div className="relative">
         <button
@@ -81,8 +87,9 @@ export function CategoryNav({ category, categories, onOpenCategorySettings }: Pr
       <GlassButton onClick={() => go(1)} aria-label="Next Category" disabled={!hasNext}>→</GlassButton>
 
       <div className="ml-auto flex items-center gap-2">
-        <GlassButton onClick={onOpenCategorySettings} aria-label="Category Settings">⚙️</GlassButton>
+	        <GlassButton onClick={onOpenCategorySettings} aria-label="Category Settings">⚙️</GlassButton>
+	        {onOpenSearch && <GlassButton onClick={onOpenSearch} aria-label="Search">🔍</GlassButton>}
       </div>
-    </div>
-  );
-}
+	    </div>
+	  );
+	}

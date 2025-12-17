@@ -10,6 +10,7 @@ type Row = {
   image?: string;
   daysLeft: number; // can be negative when overdue
   categoryName?: string;
+  starred?: boolean;
 };
 
 type Props = {
@@ -27,18 +28,6 @@ function initialsFromName(fullName: string) {
   return (first + last).toUpperCase() || '?';
 }
 
-function Medal({ rank }: { rank: 1 | 2 | 3 }) {
-  const fill = rank === 1 ? '#D4AF37' : rank === 2 ? '#C0C0C0' : '#CD7F32';
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" className="ml-1 inline-block align-[-2px]">
-      <path
-        d="M7 2h4l1 4 1-4h4l-3 7h-4L7 2Zm5 8a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"
-        fill={fill}
-      />
-    </svg>
-  );
-}
-
 export function PoppingBubblesModal({ open, onClose, categories, currentCategory, people }: Props) {
   const [scope, setScope] = useState<'all' | 'category'>('all');
 
@@ -54,19 +43,40 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
       ? people.filter((p) => p.categoryId === currentCategory.id)
       : people;
 
-    return base
-      .map((p) => {
+    const groups = new Map<string, Person[]>();
+    for (const p of base) {
+      const gid = p.duplicateGroupId ?? p.id;
+      const list = groups.get(gid);
+      if (list) list.push(p);
+      else groups.set(gid, [p]);
+    }
+
+    const rows: Row[] = [];
+    for (const [gid, members] of groups.entries()) {
+      let best: { p: Person; daysLeft: number; categoryName: string } | null = null;
+      for (const p of members) {
         const c = byId.get(p.categoryId);
-        if (!c) return null;
+        if (!c) continue;
         const limitDays = categoryTimeLimitDays(c);
         const lastMs = Date.parse(p.lastInteraction as any);
         const last = Number.isFinite(lastMs) ? new Date(lastMs) : now;
         const daysAgo = Math.max(0, daysSince(now, last));
         const daysLeft = limitDays - daysAgo;
-        return { id: p.id, fullName: p.fullName, image: p.image, daysLeft, categoryName: c.name } satisfies Row;
-      })
-      .filter(Boolean)
-      .sort((a, b) => ((a as Row).daysLeft - (b as Row).daysLeft) || (a as Row).fullName.localeCompare((b as Row).fullName)) as Row[];
+        if (!best || daysLeft < best.daysLeft) best = { p, daysLeft, categoryName: c.name };
+      }
+      if (!best) continue;
+      const starred = members.some((m) => m.starred);
+      rows.push({
+        id: gid,
+        fullName: best.p.fullName,
+        image: best.p.image,
+        daysLeft: best.daysLeft,
+        categoryName: best.categoryName,
+        starred,
+      });
+    }
+
+    return rows.sort((a, b) => (a.daysLeft - b.daysLeft) || a.fullName.localeCompare(b.fullName));
   }, [categories, people, scope, currentCategory]);
 
   useEffect(() => {
@@ -117,18 +127,19 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
           {rows.length === 0 ? (
             <div className="p-5 text-sm text-gray-700">No bubbles in this category.</div>
           ) : (
-            <div className="divide-y divide-white/50">
-              {rows.map((r, idx) => {
-                const rank = idx + 1;
-                const isTop3 = rank <= 3;
-                const daysLeftRounded = Math.ceil(r.daysLeft);
-                const daysLeftDisplay = daysLeftRounded <= 0 ? 0 : daysLeftRounded;
-                return (
-                  <div key={r.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="w-10 shrink-0 text-right font-code text-sm text-gray-800">
-                      {rank}
-                      {isTop3 && <Medal rank={rank as 1 | 2 | 3} />}
-                    </div>
+	            <div className="divide-y divide-white/50">
+	              {rows.map((r, idx) => {
+	                const rank = idx + 1;
+	                const daysLeftRounded = Math.ceil(r.daysLeft);
+	                const daysLeftDisplay = daysLeftRounded <= 0 ? 0 : daysLeftRounded;
+	                const name = r.fullName.trim();
+	                const [firstName, ...restParts] = name ? name.split(/\s+/) : ['?', ''];
+	                const restName = restParts.join(' ');
+	                return (
+	                  <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+	                    <div className="w-10 shrink-0 text-right font-code text-sm text-gray-800">
+	                      {rank}
+	                    </div>
 
                     <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-white/60 bg-white/70">
                       {r.image ? (
@@ -139,13 +150,17 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
                         </div>
                       )}
                     </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-nav tracking-tight-ui text-gray-900">{r.fullName}</div>
-                      {scope === 'all' && r.categoryName && (
-                        <div className="mt-0.5 text-xs text-gray-600">{r.categoryName}</div>
-                      )}
-                    </div>
+	
+	                    <div className="min-w-0 flex-1">
+	                      <div className="truncate font-nav tracking-tight-ui text-gray-900">
+	                        <span>{firstName}</span>
+	                        {r.starred && <span className="ml-1 text-yellow-500">★</span>}
+	                        {restName && <span className="ml-1">{restName}</span>}
+	                      </div>
+	                      {scope === 'all' && r.categoryName && (
+	                        <div className="mt-0.5 text-xs text-gray-600">{r.categoryName}</div>
+	                      )}
+	                    </div>
 
                     <div className="shrink-0 text-right">
                       <div className="font-code text-sm text-gray-900">{daysLeftDisplay}d</div>

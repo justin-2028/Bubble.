@@ -13,12 +13,14 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
   const { categories, updateCategory, deleteCategory, reorderCategory, exportData, importData } = useBubbleStore();
   const category = useMemo(() => categories.find((c) => c.id === categoryId), [categories, categoryId]);
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [timeValue, setTimeValue] = useState<number>(14);
   const [timeUnit, setTimeUnit] = useState<'days' | 'months'>('days');
 
   useEffect(() => {
     if (category) {
       setName(category.name);
+      setDescription(category.description || '');
       setTimeValue(category.timeLimitValue);
       setTimeUnit(category.timeLimitUnit);
     }
@@ -28,7 +30,7 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
 
   const onSave = (e: React.FormEvent) => {
     e.preventDefault();
-    updateCategory(category.id, { name, timeLimitValue: timeValue, timeLimitUnit: timeUnit });
+    updateCategory(category.id, { name, description, timeLimitValue: timeValue, timeLimitUnit: timeUnit });
     onClose();
   };
 
@@ -71,6 +73,16 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
             <div className="mb-1 font-nav tracking-tight-ui">Name</div>
             <input className="w-full rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2" value={name} onChange={(e) => setName(e.target.value)} required />
           </label>
+          <label className="text-sm font-body">
+            <div className="mb-1 font-nav tracking-tight-ui">Description</div>
+            <textarea
+              className="w-full rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Optional notes for this category"
+            />
+          </label>
           <div className="grid grid-cols-2 gap-2 text-sm font-body">
             <label>
               <div className="mb-1 font-nav tracking-tight-ui">Time Limit</div>
@@ -105,4 +117,3 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
     </div>
   );
 }
-

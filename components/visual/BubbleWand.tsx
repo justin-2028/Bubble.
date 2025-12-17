@@ -1,7 +1,6 @@
 "use client";
 import { motion } from 'framer-motion';
-import React, { useLayoutEffect, useState } from 'react';
-import { WAND_RING_OFFSET_PX } from '../../lib/utils';
+import React, { useLayoutEffect, useMemo, useState } from 'react';
 
 type Props = {
   categoryId?: string;
@@ -14,6 +13,9 @@ type Props = {
   onOpenLeaderboard?: () => void;
 };
 
+const NARROW_LAYOUT_BREAKPOINT_PX = 980;
+const VERY_NARROW_LAYOUT_BREAKPOINT_PX = 760;
+
 export function BubbleWand({
   categoryId,
   active = false,
@@ -25,6 +27,40 @@ export function BubbleWand({
   onOpenLeaderboard,
 }: Props) {
   const [hitRect, setHitRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const [vw, setVw] = useState(0);
+
+  useLayoutEffect(() => {
+    const onResize = () => {
+      const w = typeof window !== 'undefined' ? Math.round(window.innerWidth) : 0;
+      setVw((prev) => (prev === w ? prev : w));
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const { scaledHeightPx, scaledWidthPx, scaledRingRightPx, scaledRingTopPx, scaledHitW, scaledHitH, scaledGustTopOffsetPx, isNarrowLayout } =
+    useMemo(() => {
+      const factor =
+        vw > 0 && vw < VERY_NARROW_LAYOUT_BREAKPOINT_PX
+          ? 0.66
+          : vw > 0 && vw < NARROW_LAYOUT_BREAKPOINT_PX
+            ? 0.78
+            : 1;
+      const scaledHeightPx = Math.round(heightPx * factor);
+      const scale = scaledHeightPx / Math.max(1, heightPx);
+      const baseWidthPx = 320;
+      return {
+        isNarrowLayout: factor !== 1,
+        scaledHeightPx,
+        scaledWidthPx: Math.round(baseWidthPx * scale),
+        scaledRingRightPx: Math.round(ringRightPx * scale),
+        scaledRingTopPx: Math.round(ringTopPx * scale),
+        scaledHitW: Math.round(210 * scale),
+        scaledHitH: Math.round(240 * scale),
+        scaledGustTopOffsetPx: Math.round(98 * scale),
+      };
+    }, [vw, heightPx, ringRightPx, ringTopPx]);
 
   useLayoutEffect(() => {
     if (!onOpenLeaderboard) return;
@@ -35,8 +71,8 @@ export function BubbleWand({
       const cx = rr.left + rr.width / 2;
       const cy = rr.top + rr.height / 2;
       // Approximate the "white portion" around the ring and cup area.
-      const width = 210;
-      const height = 240;
+      const width = scaledHitW;
+      const height = scaledHitH;
       setHitRect({
         left: cx - width * 0.7,
         top: cy - height * 0.58,
@@ -64,7 +100,7 @@ export function BubbleWand({
       if (raf) cancelAnimationFrame(raf);
       clearTimeout(to);
     };
-  }, [categoryId, onOpenLeaderboard, active]);
+  }, [categoryId, onOpenLeaderboard, active, scaledHitW, scaledHitH]);
 
   // Stylized soap wand with wavy inner ring and handle.
   return (
@@ -83,27 +119,39 @@ export function BubbleWand({
       <motion.div
         key={categoryId || 'none'}
         className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2"
+        style={{ right: isNarrowLayout ? '-24px' : '0px' }}
         initial={{ x: 120, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         exit={{ opacity: 0, x: 80 }}
         transition={{ type: 'spring', stiffness: 120, damping: 16 }}
       >
-        <div className="relative" style={{ height: `${heightPx}px`, width: '320px' }}>
+        <div className="relative" style={{ height: `${scaledHeightPx}px`, width: `${scaledWidthPx}px` }}>
           {/* External image wand */}
-          <img src={imageSrc} alt="Bubble wand" className="absolute right-0 top-0 w-auto object-contain" style={{ height: `${heightPx}px` }} />
+          <img
+            src={imageSrc}
+            alt="Bubble wand"
+            className="absolute right-0 top-0 w-auto object-contain"
+            style={{ height: `${scaledHeightPx}px` }}
+          />
 
           {/* Invisible marker positioned at ring center (tune percentages if needed) */}
           <div
             id="bubble-wand-ring"
             className={`absolute ${showMarker ? 'bg-red-500/40 rounded-full' : ''}`}
-            style={{ right: `${ringRightPx}px`, top: `${ringTopPx}px`, width: '14px', height: '14px', transform: 'translate(50%, -50%)' }}
+            style={{
+              right: `${scaledRingRightPx}px`,
+              top: `${scaledRingTopPx}px`,
+              width: '14px',
+              height: '14px',
+              transform: 'translate(50%, -50%)',
+            }}
           />
 
           {/* Emission gust when active */}
           {active && (
             <>
               {[0, 0.2, 0.4].map((delay, i) => (
-                <Gust key={i} rightPx={ringRightPx - 0} topPx={ringTopPx - 98} delay={delay} />
+                <Gust key={i} rightPx={scaledRingRightPx} topPx={scaledRingTopPx - scaledGustTopOffsetPx} delay={delay} />
               ))}
             </>
           )}

@@ -1,12 +1,13 @@
 "use client";
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Category, ExportSchema, Person } from '../lib/types';
+import { Category, ExportSchema, Label, Person } from '../lib/types';
 import { uid, formatDateISO } from '../lib/utils';
 
 type State = {
   categories: Category[];
   people: Person[];
+  labels: Label[];
   currentCategoryId: string | null;
 };
 
@@ -19,6 +20,13 @@ type Actions = {
   addPerson: (p: Omit<Person, 'id'>) => void;
   updatePerson: (id: string, patch: Partial<Person>) => void;
   deletePerson: (id: string) => void;
+  duplicatePersonToCategory: (personId: string, categoryId: string) => void;
+  bulkUpdateLastInteraction: (personIds: string[], lastInteractionIso: string) => void;
+  bulkDuplicatePeopleToCategory: (personIds: string[], categoryId: string) => void;
+  bulkDeletePeople: (personIds: string[]) => void;
+  addLabel: (partial: Pick<Label, 'name' | 'color'>) => string;
+  updateLabel: (id: string, patch: Partial<Label>) => void;
+  deleteLabel: (id: string) => void;
   importData: (data: ExportSchema) => void;
   exportData: () => ExportSchema;
 };
@@ -98,7 +106,9 @@ function samplePeople(cats: Category[]): Person[] {
     context: '',
     lastInteraction: new Date(Date.now() - daysAgo * 86400000).toISOString(),
     yPosition,
-    image: svgAvatarDataUrl(fullName)
+    image: svgAvatarDataUrl(fullName),
+    labelIds: [],
+    starred: false,
   });
   return [
     mk('Alice Bubble', c1.id, 3, 20),
@@ -118,6 +128,7 @@ export const useBubbleStore = create<State & Actions>()(
     (set, get) => ({
       categories: exampleCategories,
       people: samplePeople(exampleCategories),
+      labels: [],
       currentCategoryId: exampleCategories[0].id,
 
       setCurrentCategory: (id) => set({ currentCategoryId: id }),
@@ -166,25 +177,150 @@ export const useBubbleStore = create<State & Actions>()(
         set((s) => ({ people: [...s.people, { ...p, id: uid('p_') }] })),
 
       updatePerson: (id, patch) =>
-        set((s) => ({ people: s.people.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
+        set((s) => {
+          const target = s.people.find((p) => p.id === id);
+          if (!target) return { people: s.people };
+          const groupId = target.duplicateGroupId ?? target.id;
+          const sharedPatch: Partial<Person> = { ...patch };
+          delete (sharedPatch as any).categoryId;
+          delete (sharedPatch as any).yPosition;
+          const hasShared = Object.keys(sharedPatch).length > 0;
+          return {
+            people: s.people.map((p) => {
+              const pGroupId = p.duplicateGroupId ?? p.id;
+              if (p.id === id) return { ...p, ...patch };
+              if (hasShared && pGroupId === groupId) return { ...p, ...sharedPatch };
+              return p;
+            })
+          };
+        }),
 
       deletePerson: (id) => set((s) => ({ people: s.people.filter((x) => x.id !== id) })),
 
+      duplicatePersonToCategory: (personId, categoryId) =>
+        set((s) => {
+          const src = s.people.find((p) => p.id === personId);
+          if (!src) return {};
+          const groupId = src.duplicateGroupId ?? src.id;
+          const next: Person = {
+            ...src,
+            id: uid('p_'),
+            categoryId,
+            duplicateGroupId: groupId,
+          };
+          return { people: [...s.people, next] };
+        }),
+
+      bulkUpdateLastInteraction: (personIds, lastInteractionIso) =>
+        set((s) => {
+          const idSet = new Set(personIds);
+          const groupIdsToUpdate = new Set<string>();
+          for (const p of s.people) {
+            if (idSet.has(p.id)) groupIdsToUpdate.add(p.duplicateGroupId ?? p.id);
+          }
+          return {
+            people: s.people.map((p) => {
+              const gid = p.duplicateGroupId ?? p.id;
+              if (groupIdsToUpdate.has(gid)) return { ...p, lastInteraction: lastInteractionIso };
+              return p;
+            })
+          };
+        }),
+
+      bulkDuplicatePeopleToCategory: (personIds, categoryId) =>
+        set((s) => {
+          const idSet = new Set(personIds);
+          const nextPeople: Person[] = [];
+          for (const src of s.people) {
+            if (!idSet.has(src.id)) continue;
+            const groupId = src.duplicateGroupId ?? src.id;
+            nextPeople.push({
+              ...src,
+              id: uid('p_'),
+              categoryId,
+              duplicateGroupId: groupId,
+            });
+          }
+          return nextPeople.length ? { people: [...s.people, ...nextPeople] } : {};
+        }),
+
+      bulkDeletePeople: (personIds) =>
+        set((s) => {
+          const idSet = new Set(personIds);
+          return { people: s.people.filter((p) => !idSet.has(p.id)) };
+        }),
+
+      addLabel: (partial) => {
+        const nextId = uid('lab_');
+        set((s) => ({
+          labels: [
+            ...s.labels,
+            {
+              id: nextId,
+              name: partial.name.trim() || 'New Label',
+              color: partial.color || '#2563eb',
+            },
+          ],
+        }));
+        return nextId;
+      },
+
+      updateLabel: (id, patch) =>
+        set((s) => ({
+          labels: s.labels.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+        })),
+
+      deleteLabel: (id) =>
+        set((s) => ({
+          labels: s.labels.filter((l) => l.id !== id),
+          people: s.people.map((p) => ({
+            ...p,
+            labelIds: (p.labelIds ?? []).filter((x) => x !== id),
+          })),
+        })),
+
       importData: (data) =>
         set((s) => {
-          const categories = data.categories;
-          const people = data.people;
+          const categories = (data.categories ?? []).map((c) => ({
+            ...c,
+            description: (c as any).description ?? '',
+          }));
+          const people = (data.people ?? []).map((p) => ({
+            ...p,
+            labelIds: (p as any).labelIds ?? [],
+            starred: (p as any).starred ?? false,
+            duplicateGroupId: (p as any).duplicateGroupId,
+          }));
+          const labels = (data as any).labels ?? [];
           // Preserve currentCategoryId if it still exists after import; otherwise fallback to first
           const keepId = s.currentCategoryId && categories.some((c) => c.id === s.currentCategoryId)
             ? s.currentCategoryId
             : categories[0]?.id ?? null;
-          return { categories, people, currentCategoryId: keepId };
+          return { categories, people, labels, currentCategoryId: keepId };
         }),
 
-      exportData: () => ({ version: 1, categories: get().categories, people: get().people })
-    }),
-    {
-      name: 'bubble-store-v1'
+      exportData: () => ({ version: 2, categories: get().categories, people: get().people, labels: get().labels })
+	    }),
+	    {
+	      name: 'bubble-store-v1',
+	      version: 2,
+	      migrate: (persisted: any) => {
+	        if (!persisted || typeof persisted !== 'object') return persisted as any;
+	        const categories = Array.isArray(persisted.categories) ? persisted.categories : [];
+        const people = Array.isArray(persisted.people) ? persisted.people : [];
+        const labels = Array.isArray(persisted.labels) ? persisted.labels : [];
+        return {
+          ...persisted,
+          categories: categories.map((c: any) => ({ ...c, description: c.description ?? '' })),
+          people: people.map((p: any) => ({
+            ...p,
+            labelIds: Array.isArray(p.labelIds) ? p.labelIds : [],
+            starred: typeof p.starred === 'boolean' ? p.starred : false,
+            duplicateGroupId: p.duplicateGroupId,
+          })),
+          labels,
+        } as any;
+      },
     }
   )
 );
