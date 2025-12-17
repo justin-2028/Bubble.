@@ -12,6 +12,7 @@ import {
   categoryTimeLimitDays,
   daysSince,
 } from '../../lib/utils';
+import { svgAvatarDataUrl } from '../../lib/avatar';
 import dynamic from 'next/dynamic';
 import { BulkEditPeopleModal } from '../ui/modals/BulkEditPeopleModal';
 
@@ -80,7 +81,7 @@ export function BubbleField({
   const [wandOrigin, setWandOrigin] = useState<{ x: number; y: number } | null>(null);
   const [layoutByCategory, setLayoutByCategory] = useState<Record<string, BubbleLayout>>({});
   const labelRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [labelFitScaleXById, setLabelFitScaleXById] = useState<Record<string, number>>({});
+  const [labelFitScaleById, setLabelFitScaleById] = useState<Record<string, number>>({});
   const [entranceToken, setEntranceToken] = useState<number>(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -485,10 +486,10 @@ export function BubbleField({
     viewportRightPadPct,
   ]);
 
-  // Keep single-word names on one line by horizontally scaling the glyphs to fit.
+  // Keep single-word names on one line by reducing font size to fit.
   useLayoutEffect(() => {
     if (!bounds.width || !bounds.height || people.length === 0) return;
-    setLabelFitScaleXById((prev) => {
+    setLabelFitScaleById((prev) => {
       let changed = false;
       const next = { ...prev };
       for (const p of people) {
@@ -507,7 +508,7 @@ export function BubbleField({
         const sw = el.scrollWidth || cw;
         // Slight safety margin to prevent rounding issues.
         const neededScale = (cw / Math.max(1, sw)) * 0.98;
-        const quantized = Math.round(clamp(neededScale, 0.55, 1) * 100) / 100;
+        const quantized = Math.round(clamp(neededScale, 0.72, 1) * 100) / 100;
         const prevScale = prev[p.id] ?? 1;
         if (Math.abs(quantized - prevScale) > 0.01) {
           next[p.id] = quantized;
@@ -524,6 +525,14 @@ export function BubbleField({
     const byId = new Map(people.map((p) => [p.id, p]));
     return selectedIds.map((id) => byId.get(id)).filter(Boolean) as Person[];
   }, [people, selectedIds]);
+
+  const fallbackAvatarById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of people) {
+      if (!p.image) map[p.id] = svgAvatarDataUrl(p.fullName);
+    }
+    return map;
+  }, [people]);
 
   return (
     <div ref={containerRef} className="absolute inset-0" aria-label="Bubble field">
@@ -561,12 +570,12 @@ export function BubbleField({
         const targetTopPx = ch * (y / 100);
 	        const spawnLeftPx = (wandOrigin?.x ?? (cw - WAND_RING_OFFSET_PX));
 	        const spawnTopPx = (wandOrigin?.y ?? ch * 0.5);
-	        const fitScaleX = labelFitScaleXById[p.id] ?? 1;
 	        const nameStyle = { fontSize: `${labelPx}px` } as React.CSSProperties;
           const trimmedName = (p.fullName ?? '').trim();
           const isMultiWord = /\s/.test(trimmedName);
-          const shouldScaleX = !isMultiWord;
+	        const fitScale = labelFitScaleById[p.id] ?? 1;
           const [firstName, restName] = isMultiWord ? splitNameTwoLines(trimmedName) : [trimmedName, ''];
+          const singleWordStyle = { fontSize: `${labelPx * fitScale}px` } as React.CSSProperties;
 
 		        return (
 		          <motion.div
@@ -622,14 +631,12 @@ export function BubbleField({
                 {/* Render mode: 3D or CSS + image fill */}
                 {enable3D ? (
                   <div className="absolute inset-0 rounded-full overflow-hidden">
-                    <Bubble3DClient imageUrl={p.image} gradientColors={category?.gradientColors} />
+                    <Bubble3DClient imageUrl={p.image ?? fallbackAvatarById[p.id]} gradientColors={category?.gradientColors} />
                   </div>
                 ) : (
-                  p.image && (
-                    <div className="absolute inset-1 rounded-full overflow-hidden">
-                      <img src={p.image} alt={p.fullName} className="h-full w-full object-cover" />
-                    </div>
-                  )
+                  <div className="absolute inset-1 rounded-full overflow-hidden">
+                    <img src={p.image ?? fallbackAvatarById[p.id]} alt={p.fullName} className="h-full w-full object-cover" />
+                  </div>
                 )}
                 {isOverdue && (
                   <div className="bubble-overdue" aria-hidden="true">
@@ -677,15 +684,11 @@ export function BubbleField({
                         ref={(el) => {
                           labelRefs.current[p.id] = el;
                         }}
-                        className="font-body tracking-tight-ui text-gray-800 leading-snug truncate"
-                        style={nameStyle}
+                        className="font-body tracking-tight-ui text-gray-800 leading-snug truncate text-center"
+                        style={singleWordStyle}
                       >
                         <span
                           className="inline-block"
-                          style={{
-                            transform: shouldScaleX ? `scaleX(${fitScaleX})` : undefined,
-                            transformOrigin: 'center',
-                          }}
                         >
                           {trimmedName}
                         </span>

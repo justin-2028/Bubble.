@@ -4,6 +4,7 @@ import { useBubbleStore } from '../../../store/useBubbleStore';
 import { Person } from '../../../lib/types';
 import { GlassButton } from '../GlassButton';
 import { ManageLabelsModal } from './ManageLabelsModal';
+import { svgAvatarDataUrl } from '../../../lib/avatar';
 
 function toDateInputValue(d: Date) {
   const year = d.getFullYear();
@@ -99,10 +100,28 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
     // Prevent future dates (can break x-axis directionality).
     const clamped = lastInteraction > todayMax ? todayMax : lastInteraction;
     const iso = isoFromDateInputValue(clamped, { preferNowIfToday: true });
+    const resolvedImage =
+      !image
+        ? svgAvatarDataUrl(fullName)
+        : editing &&
+            image === editing.image &&
+            image.startsWith('data:image/svg+xml') &&
+            editing.fullName !== fullName
+          ? svgAvatarDataUrl(fullName)
+          : image;
     if (editing) {
-      updatePerson(editing.id, { fullName, categoryId, context, lastInteraction: iso, image, starred, labelIds });
+      updatePerson(editing.id, { fullName, categoryId, context, lastInteraction: iso, image: resolvedImage, starred, labelIds });
     } else {
-      addPerson({ fullName, categoryId, context, lastInteraction: iso, image, yPosition: 50, starred, labelIds });
+      addPerson({
+        fullName,
+        categoryId,
+        context,
+        lastInteraction: iso,
+        image: resolvedImage,
+        yPosition: 50,
+        starred,
+        labelIds,
+      });
     }
     onClose();
   };
