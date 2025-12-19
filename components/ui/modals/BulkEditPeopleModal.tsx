@@ -108,11 +108,6 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
               {selectedPeople.length} selected{currentCategory?.name ? ` • ${currentCategory.name}` : ''}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <GlassButton type="button" onClick={onClearSelection}>
-              Close
-            </GlassButton>
-          </div>
         </div>
 
         {status && <div className="mb-3 text-sm text-gray-700">{status}</div>}

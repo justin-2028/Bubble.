@@ -41,9 +41,6 @@ export function ManageLabelsModal({ open, onClose }: Props) {
             <div className="text-2xl font-display tracking-tight-ui">Manage Labels</div>
             <div className="mt-1 text-sm text-gray-700">Create, edit, or delete labels.</div>
           </div>
-          <GlassButton type="button" onClick={onClose}>
-            Close
-          </GlassButton>
         </div>
 
         <div className="rounded-xl border border-white/50 bg-white/40">
@@ -112,4 +109,3 @@ export function ManageLabelsModal({ open, onClose }: Props) {
     </div>
   );
 }
-

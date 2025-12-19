@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useBubbleStore } from '../store/useBubbleStore';
 import { Category, Person } from '../lib/types';
 import { BubbleField } from '../components/visual/BubbleField';
@@ -11,10 +11,12 @@ import { AddEditPersonModal } from '../components/ui/modals/AddEditPersonModal';
 import { EditCategoryModal } from '../components/ui/modals/EditCategoryModal';
 import { PoppingBubblesModal } from '../components/ui/modals/PoppingBubblesModal';
 import { SearchBubblesModal } from '../components/ui/modals/SearchBubblesModal';
+import { ArchiveModal } from '../components/ui/modals/ArchiveModal';
 import { BubbleWand } from '../components/visual/BubbleWand';
 import { XAxis } from '../components/visual/XAxis';
 //
 import { LocalFileSync } from '@/components/ui/LocalFileSync';
+import { VIEWPORT_PAD_LEFT } from '../lib/utils';
 
 export default function Page() {
   const CLOUD_SYNC = false; // local-only mode
@@ -26,9 +28,12 @@ export default function Page() {
   const [editCategoryOpen, setEditCategoryOpen] = useState(false);
   const [poppingOpen, setPoppingOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveFocusPersonId, setArchiveFocusPersonId] = useState<string | null>(null);
   const [entrance, setEntrance] = useState(false);
   const [entranceEpoch, setEntranceEpoch] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const [viewportLeftPadPct, setViewportLeftPadPct] = useState<number>(VIEWPORT_PAD_LEFT);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasFetchedRef = useRef(false);
 
@@ -73,12 +78,39 @@ export default function Page() {
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .find((c) => c.id === currentCategoryId) || categories.sort((a, b) => a.sortOrder - b.sortOrder)[0], [categories, currentCategoryId]);
 
-  const currentPeople = useMemo(() => people.filter((p) => p.categoryId === currentCategory?.id), [people, currentCategory?.id]);
+  const currentPeople = useMemo(
+    () => people.filter((p) => p.categoryId === currentCategory?.id && !p.archivedAt),
+    [people, currentCategory?.id]
+  );
 
   // Cloud sync disabled
   const cats = useBubbleStore((s) => s.categories);
   const ppl = useBubbleStore((s) => s.people);
   const exportData = useBubbleStore((s) => s.exportData);
+
+  // Align x-axis left edge to the category name box (not the back arrow).
+  useLayoutEffect(() => {
+    if (!hydrated) return;
+    const el = document.getElementById('category-name-box');
+    if (!el) return;
+
+    const compute = () => {
+      const r = el.getBoundingClientRect();
+      const w = Math.max(1, Math.round(window.innerWidth));
+      const pct = Math.max(0, Math.min(30, (r.left / w) * 100));
+      const rounded = Math.round(pct * 100) / 100; // 0.01% to prevent subpixel thrash
+      setViewportLeftPadPct((prev) => (Math.abs(prev - rounded) < 0.05 ? prev : rounded));
+    };
+
+    compute();
+    window.addEventListener('resize', compute);
+    const ro = new ResizeObserver(() => compute());
+    ro.observe(el);
+    return () => {
+      window.removeEventListener('resize', compute);
+      ro.disconnect();
+    };
+  }, [hydrated, currentCategoryId]);
 
   if (!hydrated) {
     return (
@@ -92,7 +124,7 @@ export default function Page() {
 
   // No auth mode: always render the app
 
-  const keyboardNavEnabled = !(showAdd || !!editPersonId || editCategoryOpen || poppingOpen || searchOpen);
+  const keyboardNavEnabled = !(showAdd || !!editPersonId || editCategoryOpen || poppingOpen || searchOpen || archiveOpen);
 
   return (
     <main className="relative h-[100dvh] overflow-hidden">
@@ -115,6 +147,10 @@ export default function Page() {
           category={currentCategory}
           categories={categories}
           onOpenCategorySettings={() => setEditCategoryOpen(true)}
+          onOpenArchive={() => {
+            setArchiveFocusPersonId(null);
+            setArchiveOpen(true);
+          }}
           onOpenSearch={() => setSearchOpen(true)}
           keyboardNavEnabled={keyboardNavEnabled}
         />
@@ -136,6 +172,7 @@ export default function Page() {
         entranceActive={entrance}
         entranceSeed={entranceEpoch}
         keyboardShortcutsEnabled={keyboardNavEnabled}
+        viewportLeftPadPct={viewportLeftPadPct}
       />
 
       {/* Top-right utilities: clock + add + auth */}
@@ -164,15 +201,28 @@ export default function Page() {
         currentCategory={currentCategory}
         people={people}
         labels={labels}
+        onSelectArchived={(personId) => {
+          setSearchOpen(false);
+          setArchiveFocusPersonId(personId);
+          setArchiveOpen(true);
+        }}
         onSelectPerson={(personId, categoryId) => {
           setSearchOpen(false);
           setCurrentCategory(categoryId);
           setEditPersonId(personId);
         }}
       />
+      <ArchiveModal
+        open={archiveOpen}
+        focusPersonId={archiveFocusPersonId ?? undefined}
+        onClose={() => {
+          setArchiveOpen(false);
+          setArchiveFocusPersonId(null);
+        }}
+      />
 
       {/* X Axis with day markers */}
-      <XAxis category={currentCategory} />
+      <XAxis category={currentCategory} leftPadPct={viewportLeftPadPct} />
     </main>
   );
 }

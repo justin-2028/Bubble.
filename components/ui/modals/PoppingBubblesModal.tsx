@@ -9,7 +9,6 @@ type Row = {
   fullName: string;
   image?: string;
   daysLeft: number; // can be negative when overdue
-  categoryName?: string;
   starred?: boolean;
 };
 
@@ -40,8 +39,8 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
     const now = new Date();
     const byId = new Map(categories.map((c) => [c.id, c]));
     const base = scope === 'category' && currentCategory
-      ? people.filter((p) => p.categoryId === currentCategory.id)
-      : people;
+      ? people.filter((p) => p.categoryId === currentCategory.id && !p.archivedAt)
+      : people.filter((p) => !p.archivedAt);
 
     const groups = new Map<string, Person[]>();
     for (const p of base) {
@@ -71,7 +70,6 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
         fullName: best.p.fullName,
         image: best.p.image,
         daysLeft: best.daysLeft,
-        categoryName: best.categoryName,
         starred,
       });
     }
@@ -117,9 +115,6 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
                 This Category
               </button>
             </div>
-            <GlassButton type="button" onClick={onClose}>
-              Close
-            </GlassButton>
           </div>
         </div>
 
@@ -152,14 +147,11 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
                     </div>
 	
 	                    <div className="min-w-0 flex-1">
-	                      <div className="truncate font-nav tracking-tight-ui text-gray-900">
+	                      <div className="truncate font-nav tracking-tight-ui text-gray-900 text-[17px] leading-tight">
 	                        <span>{firstName}</span>
 	                        {r.starred && <span className="ml-1 text-yellow-500">★</span>}
 	                        {restName && <span className="ml-1">{restName}</span>}
 	                      </div>
-	                      {scope === 'all' && r.categoryName && (
-	                        <div className="mt-0.5 text-xs text-gray-600">{r.categoryName}</div>
-	                      )}
 	                    </div>
 
                     <div className="shrink-0 text-right">

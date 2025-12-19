@@ -21,6 +21,8 @@ type Actions = {
   addPerson: (p: Omit<Person, 'id'>) => void;
   updatePerson: (id: string, patch: Partial<Person>) => void;
   deletePerson: (id: string) => void;
+  archivePerson: (id: string) => void;
+  restorePerson: (id: string, opts: { categoryId: string; lastInteraction?: string }) => void;
   duplicatePersonToCategory: (personId: string, categoryId: string) => void;
   bulkUpdateLastInteraction: (personIds: string[], lastInteractionIso: string) => void;
   bulkDuplicatePeopleToCategory: (personIds: string[], categoryId: string) => void;
@@ -119,7 +121,8 @@ export const useBubbleStore = create<State & Actions>()(
         set((s) => {
           const categories = s.categories.filter((c) => c.id !== id)
             .map((c, i) => ({ ...c, sortOrder: i }));
-          const people = s.people.filter((p) => p.categoryId !== id);
+          // Preserve archived bubbles even if their last category was deleted.
+          const people = s.people.filter((p) => p.categoryId !== id || !!p.archivedAt);
           const currentCategoryId = categories[0]?.id || null;
           return { categories, people, currentCategoryId };
         }),
@@ -169,6 +172,45 @@ export const useBubbleStore = create<State & Actions>()(
         }),
 
       deletePerson: (id) => set((s) => ({ people: s.people.filter((x) => x.id !== id) })),
+
+      archivePerson: (id) =>
+        set((s) => ({
+          people: s.people.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  archivedAt: new Date().toISOString(),
+                  archivedFromCategoryId: p.categoryId,
+                }
+              : p
+          ),
+        })),
+
+      restorePerson: (id, opts) =>
+        set((s) => {
+          const target = s.people.find((p) => p.id === id);
+          if (!target) return { people: s.people };
+          const groupId = target.duplicateGroupId ?? target.id;
+          const lastInteraction =
+            typeof opts.lastInteraction === 'string' && opts.lastInteraction.length > 0 ? opts.lastInteraction : null;
+          return {
+            people: s.people.map((p) => {
+              const pGroupId = p.duplicateGroupId ?? p.id;
+              const shouldShare = !!lastInteraction && pGroupId === groupId;
+              if (p.id === id) {
+                return {
+                  ...p,
+                  categoryId: opts.categoryId,
+                  ...(shouldShare ? { lastInteraction } : {}),
+                  archivedAt: undefined,
+                  archivedFromCategoryId: undefined,
+                };
+              }
+              if (shouldShare) return { ...p, lastInteraction };
+              return p;
+            }),
+          };
+        }),
 
       duplicatePersonToCategory: (personId, categoryId) =>
         set((s) => {
@@ -263,6 +305,8 @@ export const useBubbleStore = create<State & Actions>()(
             labelIds: (p as any).labelIds ?? [],
             starred: (p as any).starred ?? false,
             duplicateGroupId: (p as any).duplicateGroupId,
+            archivedAt: typeof (p as any).archivedAt === 'string' ? (p as any).archivedAt : undefined,
+            archivedFromCategoryId: typeof (p as any).archivedFromCategoryId === 'string' ? (p as any).archivedFromCategoryId : undefined,
           }));
           const labels = (data as any).labels ?? [];
           // Preserve currentCategoryId if it still exists after import; otherwise fallback to first
@@ -290,6 +334,8 @@ export const useBubbleStore = create<State & Actions>()(
             labelIds: Array.isArray(p.labelIds) ? p.labelIds : [],
             starred: typeof p.starred === 'boolean' ? p.starred : false,
             duplicateGroupId: p.duplicateGroupId,
+            archivedAt: typeof p.archivedAt === 'string' ? p.archivedAt : undefined,
+            archivedFromCategoryId: typeof p.archivedFromCategoryId === 'string' ? p.archivedFromCategoryId : undefined,
           })),
           labels,
         } as any;

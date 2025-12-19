@@ -31,7 +31,7 @@ type Props = {
 };
 
 export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId }: Props) {
-  const { categories, labels, addLabel, addPerson, updatePerson, deletePerson, people } = useBubbleStore();
+  const { categories, labels, addLabel, addPerson, updatePerson, deletePerson, archivePerson, people } = useBubbleStore();
   const editing = useMemo<Person | undefined>(() => people.find((p) => p.id === personId), [people, personId]);
 
   const todayMax = useMemo(() => toDateInputValue(new Date()), []);
@@ -135,6 +135,15 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
     if (!editing) return;
     deletePerson(editing.id);
     setConfirmDeleteOpen(false);
+    onClose();
+  };
+
+  const onArchive = () => {
+    if (!editing) {
+      onClose();
+      return;
+    }
+    archivePerson(editing.id);
     onClose();
   };
 
@@ -324,7 +333,9 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
                   Delete
                 </GlassButton>
               )}
-              <GlassButton type="button" onClick={onClose}>Cancel</GlassButton>
+              <GlassButton type="button" onClick={editing ? onArchive : onClose}>
+                {editing ? 'Archive' : 'Cancel'}
+              </GlassButton>
               <GlassButton type="submit">{editing ? 'Save' : 'Add'}</GlassButton>
             </div>
           </div>

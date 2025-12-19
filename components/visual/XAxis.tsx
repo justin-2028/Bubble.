@@ -15,7 +15,9 @@ function niceStep(limit: number) {
   return 30;
 }
 
-export function XAxis({ category }: Props) {
+type XAxisProps = { category?: Category; leftPadPct?: number };
+
+export function XAxis({ category, leftPadPct: leftPadPctProp }: XAxisProps) {
   const [vw, setVw] = useState(0);
   useLayoutEffect(() => {
     const onResize = () => {
@@ -28,7 +30,7 @@ export function XAxis({ category }: Props) {
   }, []);
 
   const isNarrowLayout = vw > 0 && vw < NARROW_LAYOUT_BREAKPOINT_PX;
-  const leftPadPct = VIEWPORT_PAD_LEFT;
+  const leftPadPct = leftPadPctProp ?? VIEWPORT_PAD_LEFT;
   const rightPadPct = isNarrowLayout ? 10 : VIEWPORT_PAD_RIGHT;
 
   const ticks = useMemo(() => {

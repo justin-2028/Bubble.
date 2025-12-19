@@ -14,14 +14,14 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
   const category = useMemo(() => categories.find((c) => c.id === categoryId), [categories, categoryId]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [timeValue, setTimeValue] = useState<number>(14);
+  const [timeValue, setTimeValue] = useState<string>('14');
   const [timeUnit, setTimeUnit] = useState<'days' | 'months'>('days');
 
   useEffect(() => {
     if (category) {
       setName(category.name);
       setDescription(category.description || '');
-      setTimeValue(category.timeLimitValue);
+      setTimeValue(String(category.timeLimitValue));
       setTimeUnit(category.timeLimitUnit);
     }
   }, [category, open]);
@@ -30,7 +30,9 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
 
   const onSave = (e: React.FormEvent) => {
     e.preventDefault();
-    updateCategory(category.id, { name, description, timeLimitValue: timeValue, timeLimitUnit: timeUnit });
+    const parsed = parseInt(timeValue, 10);
+    const clamped = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+    updateCategory(category.id, { name, description, timeLimitValue: clamped, timeLimitUnit: timeUnit });
     onClose();
   };
 
@@ -86,7 +88,18 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
           <div className="grid grid-cols-2 gap-2 text-sm font-body">
             <label>
               <div className="mb-1 font-nav tracking-tight-ui">Time Limit</div>
-              <input type="number" min={1} className="w-full rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2" value={timeValue} onChange={(e) => setTimeValue(Number(e.target.value))} />
+              <input
+                type="number"
+                min={1}
+                className="w-full rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2"
+                value={timeValue}
+                onChange={(e) => setTimeValue(e.target.value)}
+                onBlur={() => {
+                  const parsed = parseInt(timeValue, 10);
+                  const clamped = Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+                  setTimeValue(String(clamped));
+                }}
+              />
             </label>
             <label>
               <div className="mb-1 font-nav tracking-tight-ui">Unit</div>

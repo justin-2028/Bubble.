@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Category, Label, Person } from '../../../lib/types';
 import { GlassButton } from '../GlassButton';
+import { ArchiveBoxIcon } from '../icons/ArchiveBoxIcon';
 
 type Props = {
   open: boolean;
@@ -11,6 +12,7 @@ type Props = {
   people: Person[];
   labels: Label[];
   onSelectPerson: (personId: string, categoryId: string) => void;
+  onSelectArchived: (personId: string) => void;
 };
 
 function initialsFromName(fullName: string) {
@@ -20,7 +22,7 @@ function initialsFromName(fullName: string) {
   return (first + last).toUpperCase() || '?';
 }
 
-export function SearchBubblesModal({ open, onClose, categories, currentCategory, people, labels, onSelectPerson }: Props) {
+export function SearchBubblesModal({ open, onClose, categories, currentCategory, people, labels, onSelectPerson, onSelectArchived }: Props) {
   const [scope, setScope] = useState<'all' | 'category'>('category');
   const [query, setQuery] = useState('');
   const [termMode, setTermMode] = useState<'all' | 'any'>('all');
@@ -64,7 +66,9 @@ export function SearchBubblesModal({ open, onClose, categories, currentCategory,
 
   const results = useMemo(() => {
     const base =
-      scope === 'category' && currentCategory ? people.filter((p) => p.categoryId === currentCategory.id) : people;
+      scope === 'category' && currentCategory
+        ? people.filter((p) => p.categoryId === currentCategory.id && !p.archivedAt)
+        : people;
     const termActive = terms.length > 0;
     const labelActive = selectedLabelIds.length > 0;
     if (!termActive && !labelActive) return [];
@@ -105,16 +109,16 @@ export function SearchBubblesModal({ open, onClose, categories, currentCategory,
           onClose();
         }}
       />
-      <div className="glass relative z-10 w-[min(860px,94vw)] max-h-[90vh] overflow-auto rounded-2xl p-5">
-        <div className="mb-3 flex items-start justify-between gap-4">
-          <div>
-            <div className="text-2xl font-display tracking-tight-ui">Search</div>
-            <div className="mt-1 text-sm text-gray-700">Find bubbles by context or labels.</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="glass flex rounded-xl p-1">
-              <button
-                type="button"
+	      <div className="glass relative z-10 w-[min(860px,94vw)] max-h-[90vh] overflow-auto rounded-2xl p-5">
+	        <div className="mb-3 flex items-start justify-between gap-4">
+	          <div>
+	            <div className="text-2xl font-display tracking-tight-ui">Search</div>
+	            <div className="mt-1 text-sm text-gray-700">Find bubbles by context or labels.</div>
+	          </div>
+	          <div className="flex items-center gap-2">
+	            <div className="glass flex rounded-xl p-1">
+	              <button
+	                type="button"
                 className={`rounded-lg px-3 py-1.5 text-sm font-nav tracking-tight-ui ${scope === 'category' ? 'bg-white/70 text-gray-900' : 'text-gray-700 hover:bg-white/50'}`}
                 disabled={!currentCategory}
                 onClick={() => setScope('category')}
@@ -126,20 +130,11 @@ export function SearchBubblesModal({ open, onClose, categories, currentCategory,
                 className={`rounded-lg px-3 py-1.5 text-sm font-nav tracking-tight-ui ${scope === 'all' ? 'bg-white/70 text-gray-900' : 'text-gray-700 hover:bg-white/50'}`}
                 onClick={() => setScope('all')}
               >
-                All Categories
-              </button>
-            </div>
-            <GlassButton
-              type="button"
-              onClick={() => {
-                setLabelMenuOpen(false);
-                onClose();
-              }}
-            >
-              Close
-            </GlassButton>
-          </div>
-        </div>
+	                All Categories
+	              </button>
+	            </div>
+	          </div>
+	        </div>
 
         <div className="grid grid-cols-1 gap-4">
           <div className="rounded-xl border border-white/50 bg-white/40 p-4">
@@ -194,13 +189,6 @@ export function SearchBubblesModal({ open, onClose, categories, currentCategory,
                     Any Label
                   </button>
                 </div>
-                <GlassButton
-                  type="button"
-                  onClick={() => setSelectedLabelIds([])}
-                  disabled={selectedLabelIds.length === 0}
-                >
-                  Clear
-                </GlassButton>
               </div>
             </div>
 
@@ -264,19 +252,29 @@ export function SearchBubblesModal({ open, onClose, categories, currentCategory,
           ) : (
             <div className="flex flex-wrap gap-4">
               {results.map((p) => {
-                const cat = categoryById.get(p.categoryId);
+                const isArchived = !!p.archivedAt;
+                const catId = isArchived ? (p.archivedFromCategoryId ?? p.categoryId) : p.categoryId;
+                const cat = categoryById.get(catId);
                 return (
                   <button
                     key={p.id}
                     type="button"
                     className="flex w-[120px] flex-col items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/20"
-                    onClick={() => onSelectPerson(p.id, p.categoryId)}
+                    onClick={() => {
+                      if (isArchived) onSelectArchived(p.id);
+                      else onSelectPerson(p.id, p.categoryId);
+                    }}
                   >
                     <div className="bubble relative flex h-16 w-16 items-center justify-center overflow-hidden">
                       {p.image ? (
                         <img src={p.image} alt={p.fullName} className="absolute inset-0 h-full w-full object-cover" />
                       ) : (
                         <div className="font-nav text-sm text-gray-700">{initialsFromName(p.fullName)}</div>
+                      )}
+                      {isArchived && (
+                        <div className="absolute right-1 top-1 rounded-md border border-white/70 bg-white/70 p-0.5 text-gray-800" aria-hidden="true">
+                          <ArchiveBoxIcon className="h-3.5 w-3.5" />
+                        </div>
                       )}
                     </div>
                     <div className="w-full text-center">

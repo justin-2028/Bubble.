@@ -27,6 +27,8 @@ export interface Person {
   duplicateGroupId?: string; // links duplicates across categories
   labelIds?: string[]; // ordered
   starred?: boolean;
+  archivedAt?: string; // ISO string when archived
+  archivedFromCategoryId?: string; // last category before archive
 }
 
 export interface ExportSchema {

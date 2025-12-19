@@ -23,6 +23,7 @@ type Props = {
   entranceActive?: boolean;
   entranceSeed?: number;
   keyboardShortcutsEnabled?: boolean;
+  viewportLeftPadPct?: number;
 };
 
 type BubbleLane = {
@@ -75,6 +76,7 @@ export function BubbleField({
   entranceActive = false,
   entranceSeed = 0,
   keyboardShortcutsEnabled = true,
+  viewportLeftPadPct: viewportLeftPadPctProp,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [bounds, setBounds] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -188,7 +190,7 @@ export function BubbleField({
 	  const varianceSlackMultiplier = FINAL_Y_VARIANCE_SLACK_MULT;
 	  const varianceMaxPx = FINAL_Y_VARIANCE_MAX_PX;
     const isNarrowLayout = bounds.width > 0 && bounds.width < NARROW_LAYOUT_BREAKPOINT_PX;
-    const viewportLeftPadPct = VIEWPORT_PAD_LEFT;
+    const viewportLeftPadPct = viewportLeftPadPctProp ?? VIEWPORT_PAD_LEFT;
     // In narrow layouts, shrink the wand and reclaim a bit of horizontal domain for the x-axis.
     const viewportRightPadPct = isNarrowLayout ? 10 : VIEWPORT_PAD_RIGHT;
 
@@ -506,10 +508,12 @@ export function BubbleField({
         if (!el) continue; // wait for refs
         const cw = el.clientWidth || 1;
         const sw = el.scrollWidth || cw;
-        // Slight safety margin to prevent rounding issues.
-        const neededScale = (cw / Math.max(1, sw)) * 0.98;
-        const quantized = Math.round(clamp(neededScale, 0.72, 1) * 100) / 100;
+        // Compute scale relative to the *base* label size to avoid oscillation across re-measures.
+        // `sw` is measured at the current effective font size (labelPx * prevScale), so normalize it.
         const prevScale = prev[p.id] ?? 1;
+        // Safety margin to prevent subpixel rounding from clipping the last glyph.
+        const neededScale = ((cw * prevScale) / Math.max(1, sw)) * 0.98;
+        const quantized = Math.round(clamp(neededScale, 0.55, 1) * 100) / 100;
         if (Math.abs(quantized - prevScale) > 0.01) {
           next[p.id] = quantized;
           changed = true;
@@ -517,7 +521,7 @@ export function BubbleField({
       }
       return changed ? next : prev;
     });
-  }, [people, bounds.width, bounds.height]);
+  }, [people, bounds.width, bounds.height, bubbleVmin, labelPx, entranceToken]);
 
   const enable3D = process.env.NEXT_PUBLIC_BUBBLE_3D === '1';
   const selectedPeople = useMemo(() => {
