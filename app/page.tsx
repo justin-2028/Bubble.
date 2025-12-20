@@ -147,6 +147,7 @@ export default function Page() {
           category={currentCategory}
           categories={categories}
           onOpenCategorySettings={() => setEditCategoryOpen(true)}
+          onOpenLeaderboard={() => setPoppingOpen(true)}
           onOpenArchive={() => {
             setArchiveFocusPersonId(null);
             setArchiveOpen(true);
@@ -161,7 +162,6 @@ export default function Page() {
         categoryId={currentCategory?.id}
         active={entrance}
         imageSrc="/newbubblewand.png"
-        onOpenLeaderboard={() => setPoppingOpen(true)}
       />
 
       {/* Bubbles */}

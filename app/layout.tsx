@@ -11,6 +11,7 @@ import { Providers } from '../components/Providers';
 import React from 'react';
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { DesktopOnlyGate } from '../components/ui/DesktopOnlyGate';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           {children}
           <Analytics />
+          <DesktopOnlyGate minWidthPx={1024} />
         </Providers>
       </body>
     </html>

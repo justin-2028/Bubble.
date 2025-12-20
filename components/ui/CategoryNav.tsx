@@ -4,6 +4,7 @@ import { Category } from '../../lib/types';
 import { useBubbleStore } from '../../store/useBubbleStore';
 import { GlassButton } from './GlassButton';
 import { ArchiveBoxIcon } from './icons/ArchiveBoxIcon';
+import { LeaderboardPodiumIcon } from './icons/LeaderboardPodiumIcon';
 
 function MagnifyingGlassIcon(props: React.SVGProps<SVGSVGElement>) {
   const maskId = React.useId();
@@ -45,12 +46,13 @@ type Props = {
   category?: Category;
   categories: Category[];
   onOpenCategorySettings: () => void;
+  onOpenLeaderboard?: () => void;
   onOpenArchive?: () => void;
   onOpenSearch?: () => void;
   keyboardNavEnabled?: boolean;
 };
 
-export function CategoryNav({ category, categories, onOpenCategorySettings, onOpenArchive, onOpenSearch, keyboardNavEnabled = true }: Props) {
+export function CategoryNav({ category, categories, onOpenCategorySettings, onOpenLeaderboard, onOpenArchive, onOpenSearch, keyboardNavEnabled = true }: Props) {
   const { setCurrentCategory, addCategory } = useBubbleStore();
   const [open, setOpen] = React.useState(false);
   const ordered = categories.slice().sort((a, b) => a.sortOrder - b.sortOrder);
@@ -129,6 +131,11 @@ export function CategoryNav({ category, categories, onOpenCategorySettings, onOp
 	        <GlassButton onClick={onOpenCategorySettings} aria-label="Category Settings" title="Settings">
             <GearIcon className="h-4 w-4" />
           </GlassButton>
+          {onOpenLeaderboard && (
+            <GlassButton onClick={onOpenLeaderboard} aria-label="Leaderboard" title="Leaderboard">
+              <LeaderboardPodiumIcon className="h-4 w-4" strokeWidth={2.5} />
+            </GlassButton>
+          )}
           {onOpenArchive && (
             <GlassButton onClick={onOpenArchive} aria-label="Archive" title="Archive">
               <ArchiveBoxIcon className="h-4 w-4" />
