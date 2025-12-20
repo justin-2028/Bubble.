@@ -88,11 +88,17 @@ export function BubbleField({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [showDaysOverlay, setShowDaysOverlay] = useState(false);
+  const [touchCapable, setTouchCapable] = useState(false);
 
   useEffect(() => {
     setSelectedIds([]);
     setBulkOpen(false);
   }, [category?.id]);
+
+  useEffect(() => {
+    const pts = typeof navigator !== 'undefined' ? Number((navigator as any).maxTouchPoints ?? 0) : 0;
+    setTouchCapable(pts > 0);
+  }, []);
 
   // Spacebar toggles an overlay showing days since last interaction (only when not editing).
   useEffect(() => {
@@ -191,8 +197,10 @@ export function BubbleField({
 	  const varianceMaxPx = FINAL_Y_VARIANCE_MAX_PX;
     const isNarrowLayout = bounds.width > 0 && bounds.width < NARROW_LAYOUT_BREAKPOINT_PX;
     const viewportLeftPadPct = viewportLeftPadPctProp ?? VIEWPORT_PAD_LEFT;
+    const isTabletLayout = touchCapable && bounds.width >= 1024 && bounds.width < 1400;
+    const tabletRightPadPct = bounds.width > 0 && bounds.width < 1100 ? 32 : 28;
     // In narrow layouts, shrink the wand and reclaim a bit of horizontal domain for the x-axis.
-    const viewportRightPadPct = isNarrowLayout ? 10 : VIEWPORT_PAD_RIGHT;
+    const viewportRightPadPct = isNarrowLayout ? 10 : isTabletLayout ? tabletRightPadPct : VIEWPORT_PAD_RIGHT;
 
   useLayoutEffect(() => {
     if (!category || !bounds.width || !bounds.height || people.length === 0) return;

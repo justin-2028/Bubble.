@@ -28,6 +28,7 @@ export function BubbleWand({
 }: Props) {
   const [hitRect, setHitRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [vw, setVw] = useState(0);
+  const [touchCapable, setTouchCapable] = useState(false);
 
   useLayoutEffect(() => {
     const onResize = () => {
@@ -39,19 +40,27 @@ export function BubbleWand({
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  useLayoutEffect(() => {
+    const pts = typeof navigator !== 'undefined' ? Number((navigator as any).maxTouchPoints ?? 0) : 0;
+    setTouchCapable(pts > 0);
+  }, []);
+
   const { scaledHeightPx, scaledWidthPx, scaledRingRightPx, scaledRingTopPx, scaledHitW, scaledHitH, scaledGustTopOffsetPx, isNarrowLayout } =
     useMemo(() => {
-      const factor =
+      const baseFactor =
         vw > 0 && vw < VERY_NARROW_LAYOUT_BREAKPOINT_PX
           ? 0.66
           : vw > 0 && vw < NARROW_LAYOUT_BREAKPOINT_PX
             ? 0.78
             : 1;
+      const isTabletLayout = touchCapable && vw >= 1024 && vw < 1400;
+      const tabletFactor = isTabletLayout ? 0.85 : 1;
+      const factor = baseFactor * tabletFactor;
       const scaledHeightPx = Math.round(heightPx * factor);
       const scale = scaledHeightPx / Math.max(1, heightPx);
       const baseWidthPx = 320;
       return {
-        isNarrowLayout: factor !== 1,
+        isNarrowLayout: baseFactor !== 1,
         scaledHeightPx,
         scaledWidthPx: Math.round(baseWidthPx * scale),
         scaledRingRightPx: Math.round(ringRightPx * scale),
@@ -60,7 +69,7 @@ export function BubbleWand({
         scaledHitH: Math.round(240 * scale),
         scaledGustTopOffsetPx: Math.round(98 * scale),
       };
-    }, [vw, heightPx, ringRightPx, ringTopPx]);
+    }, [vw, touchCapable, heightPx, ringRightPx, ringTopPx]);
 
   useLayoutEffect(() => {
     if (!onOpenLeaderboard) return;

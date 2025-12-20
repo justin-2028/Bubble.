@@ -145,13 +145,13 @@ export function LocalFileSync() {
 
   // Close menu on outside click
   useEffect(() => {
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: PointerEvent) => {
       if (!open) return;
       if (!rootRef.current) return;
       if (!rootRef.current.contains(e.target as Node)) setOpen(false);
     };
-    window.addEventListener('mousedown', onDown);
-    return () => window.removeEventListener('mousedown', onDown);
+    window.addEventListener('pointerdown', onDown);
+    return () => window.removeEventListener('pointerdown', onDown);
   }, [open]);
 
   const createNew = async () => {
@@ -228,17 +228,76 @@ export function LocalFileSync() {
     setOpen(false);
   };
 
-  if (!supported) return null;
+  const manualExport = () => {
+    try {
+      const blob = new Blob([JSON.stringify(exportData(), null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'bubble-data.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus('Exported');
+      setTimeout(() => setStatus(''), 1500);
+      setOpen(false);
+    } catch {
+      setStatus('Export failed');
+      setTimeout(() => setStatus(''), 2000);
+    }
+  };
+
+  const manualImport = async (file: File | null | undefined) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      if (json && typeof json === 'object' && Array.isArray(json.categories) && Array.isArray(json.people)) {
+        importData(json);
+        setStatus('Imported');
+        setTimeout(() => setStatus(''), 1500);
+      } else {
+        setStatus('Invalid data file');
+        setTimeout(() => setStatus(''), 2500);
+      }
+    } catch {
+      setStatus('Invalid data file');
+      setTimeout(() => setStatus(''), 2500);
+    } finally {
+      setOpen(false);
+    }
+  };
 
   // Single-button dropdown menu
   return (
     <div className="relative" ref={rootRef}>
       <GlassButton onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
-        {fileHandle ? 'File Sync: On ▾' : savedHandle ? 'File Sync: Reconnect ▾' : 'File Sync ▾'}
+        {!supported ? 'File Sync ▾' : fileHandle ? 'File Sync: On ▾' : savedHandle ? 'File Sync: Reconnect ▾' : 'File Sync ▾'}
       </GlassButton>
       {open && (
         <div className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-white/60 bg-white/80 p-1 shadow-xl backdrop-blur">
-          {!fileHandle ? (
+          {!supported ? (
+            <>
+              <button
+                className="w-full rounded-lg px-3 py-2 text-left font-nav tracking-tight-ui hover:bg-white/70"
+                onClick={manualExport}
+                role="menuitem"
+              >
+                Export Data
+              </button>
+              <label className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left font-nav tracking-tight-ui hover:bg-white/70" role="menuitem">
+                Import Data
+                <input
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  onChange={(e) => manualImport(e.target.files?.[0])}
+                />
+              </label>
+              <div className="px-3 py-2 text-xs text-gray-600">
+                Auto file sync requires a desktop browser (Chrome/Edge).
+              </div>
+            </>
+          ) : !fileHandle ? (
             <>
               {savedHandle && (
                 <button

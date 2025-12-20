@@ -19,7 +19,11 @@ type XAxisProps = { category?: Category; leftPadPct?: number };
 
 export function XAxis({ category, leftPadPct: leftPadPctProp }: XAxisProps) {
   const [vw, setVw] = useState(0);
+  const [touchCapable, setTouchCapable] = useState(false);
   useLayoutEffect(() => {
+    const pts = typeof navigator !== 'undefined' ? Number((navigator as any).maxTouchPoints ?? 0) : 0;
+    setTouchCapable(pts > 0);
+
     const onResize = () => {
       const w = typeof window !== 'undefined' ? Math.round(window.innerWidth) : 0;
       setVw((prev) => (prev === w ? prev : w));
@@ -31,7 +35,9 @@ export function XAxis({ category, leftPadPct: leftPadPctProp }: XAxisProps) {
 
   const isNarrowLayout = vw > 0 && vw < NARROW_LAYOUT_BREAKPOINT_PX;
   const leftPadPct = leftPadPctProp ?? VIEWPORT_PAD_LEFT;
-  const rightPadPct = isNarrowLayout ? 10 : VIEWPORT_PAD_RIGHT;
+  const isTabletLayout = touchCapable && vw >= 1024 && vw < 1400;
+  const tabletRightPadPct = vw > 0 && vw < 1100 ? 32 : 28;
+  const rightPadPct = isNarrowLayout ? 10 : isTabletLayout ? tabletRightPadPct : VIEWPORT_PAD_RIGHT;
 
   const ticks = useMemo(() => {
     if (!category) return [] as { value: number; xPct: number }[];
