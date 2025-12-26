@@ -34,8 +34,16 @@ type BubbleLane = {
 };
 
 type BubbleLayout = {
-  yPctById: Record<string, number>;
+  yPxById: Record<string, number>;
   scale: number;
+  scroll: {
+    extraTopPx: number;
+    extraBottomPx: number;
+    contentHeightPx: number;
+    initialScrollTopPx: number;
+    hintXPx?: number;
+    maxStackCount?: number;
+  };
 };
 
 function hashToUint32(s: string) {
@@ -79,6 +87,8 @@ export function BubbleField({
   viewportLeftPadPct: viewportLeftPadPctProp,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollTopRef = useRef(0);
+  const lastScrollInitRef = useRef<{ categoryId: string; initTop: number } | null>(null);
   const [bounds, setBounds] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [wandOrigin, setWandOrigin] = useState<{ x: number; y: number } | null>(null);
   const [layoutByCategory, setLayoutByCategory] = useState<Record<string, BubbleLayout>>({});
@@ -438,18 +448,37 @@ export function BubbleField({
     const shiftDown = topBound - clusterTop;
     const shiftUp = clusterBottom - bottomBound;
     let shift = 0;
-    if (shiftDown > 0 && shiftUp > 0) {
-      scale = MIN_SCALE;
-    } else if (shiftDown > 0) {
+    if (shiftDown > 0 && shiftUp <= 0) {
       shift = shiftDown;
-    } else if (shiftUp > 0) {
+    } else if (shiftUp > 0 && shiftDown <= 0) {
       shift = -shiftUp;
     }
     if (shift !== 0) {
       for (let li = 0; li < lanes.length; li++) laneY[li] += shift;
+      clusterTop += shift;
+      clusterBottom += shift;
     }
 
-    const yPctById: Record<string, number> = {};
+    const extraTopPx = Math.ceil(Math.max(0, topBound - clusterTop));
+    const extraBottomPx = Math.ceil(Math.max(0, clusterBottom - bottomBound));
+
+    const stackBucketPx = Math.max(26, Math.round(bubbleRadiusPx * 0.9));
+    let hintXPx: number | undefined;
+    let maxStackCount = 0;
+    {
+      const counts = new Map<number, number>();
+      for (const n of nodes) {
+        const bucket = Math.round(n.xPx / stackBucketPx) * stackBucketPx;
+        const next = (counts.get(bucket) ?? 0) + 1;
+        counts.set(bucket, next);
+        if (next > maxStackCount || (next === maxStackCount && (hintXPx ?? -Infinity) < bucket)) {
+          maxStackCount = next;
+          hintXPx = bucket;
+        }
+      }
+    }
+
+    const yPxById: Record<string, number> = {};
     for (const p of people) {
       const li = nodeLane[p.id] ?? 0;
       const node = nodeById[p.id];
@@ -459,26 +488,45 @@ export function BubbleField({
       const maxDown = Math.min(inflatePx, slackDown);
       const u = mulberry32(hashToUint32(`${category.id}:${entranceToken}:${p.id}:finalY`))();
       const delta = clamp(u * (maxDown + maxUp) - maxUp, -maxUp, maxDown);
-      yPctById[p.id] = clamp(((laneY[li] + delta) / bounds.height) * 100, 0, 100);
+      yPxById[p.id] = laneY[li] + delta;
     }
+
+    const nextScroll = {
+      extraTopPx,
+      extraBottomPx,
+      contentHeightPx: bounds.height + extraTopPx + extraBottomPx,
+      initialScrollTopPx: extraTopPx,
+      hintXPx,
+      maxStackCount,
+    };
 
     setLayoutByCategory((prev) => {
       const prevEntry = prev[category.id];
       const prevScale = prevEntry?.scale ?? 1;
       const nextScale = Math.round(scale * 100) / 100;
-      const prevMap = prevEntry?.yPctById ?? {};
-      if (Math.abs(prevScale - nextScale) <= 0.001) {
+      const prevScroll = prevEntry?.scroll;
+      const prevMap = prevEntry?.yPxById ?? {};
+      if (
+        Math.abs(prevScale - nextScale) <= 0.001 &&
+        prevScroll &&
+        prevScroll.extraTopPx === nextScroll.extraTopPx &&
+        prevScroll.extraBottomPx === nextScroll.extraBottomPx &&
+        prevScroll.contentHeightPx === nextScroll.contentHeightPx &&
+        prevScroll.initialScrollTopPx === nextScroll.initialScrollTopPx &&
+        (prevScroll.hintXPx ?? null) === (nextScroll.hintXPx ?? null) &&
+        (prevScroll.maxStackCount ?? null) === (nextScroll.maxStackCount ?? null)
+      ) {
         const keysA = Object.keys(prevMap);
-        const keysB = Object.keys(yPctById);
+        const keysB = Object.keys(yPxById);
         if (keysA.length === keysB.length) {
           let same = true;
           for (const k of keysB) {
-            if (Math.abs((prevMap as any)[k] - (yPctById as any)[k]) > 0.001) { same = false; break; }
+            if (Math.abs((prevMap as any)[k] - (yPxById as any)[k]) > 0.001) { same = false; break; }
           }
           if (same) return prev;
         }
       }
-      return { ...prev, [category.id]: { yPctById, scale: nextScale } };
+      return { ...prev, [category.id]: { yPxById, scale: nextScale, scroll: nextScroll } };
     });
   }, [
     people,
@@ -546,8 +594,74 @@ export function BubbleField({
     return map;
   }, [people]);
 
+  const scroll = layout?.scroll;
+  const scrollEnabled = !!scroll && scroll.contentHeightPx > bounds.height + 1;
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const categoryId = category?.id ?? 'none';
+    const prev = lastScrollInitRef.current;
+    const nextInit = scrollEnabled ? (scroll?.initialScrollTopPx ?? 0) : 0;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+
+    if (!prev || prev.categoryId !== categoryId) {
+      el.scrollTop = clamp(nextInit, 0, max);
+    } else if (prev.initTop !== nextInit) {
+      const userOffset = el.scrollTop - prev.initTop;
+      el.scrollTop = clamp(nextInit + userOffset, 0, max);
+    }
+
+    scrollTopRef.current = el.scrollTop;
+    lastScrollInitRef.current = { categoryId, initTop: nextInit };
+  }, [category?.id, scrollEnabled, scroll?.initialScrollTopPx, scroll?.contentHeightPx]);
+
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled) return;
+    if (!scrollEnabled) return;
+    if (bulkOpen || selectedIds.length > 0) return;
+
+    const isEditableTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      if (isEditableTarget(e.target)) return;
+
+      const el = containerRef.current;
+      if (!el) return;
+
+      e.preventDefault();
+      const bigStep = 220;
+      const step = e.shiftKey ? bigStep : 120;
+      el.scrollBy({ top: e.key === 'ArrowDown' ? step : -step, behavior: 'smooth' });
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [keyboardShortcutsEnabled, scrollEnabled, bulkOpen, selectedIds.length]);
+
+  const cw = bounds.width || (containerRef.current?.getBoundingClientRect().width ?? 0);
+  const viewportH =
+    bounds.height || (containerRef.current?.getBoundingClientRect().height ?? (typeof window !== 'undefined' ? window.innerHeight : 0));
+  const contentHeightPx = scrollEnabled ? scroll!.contentHeightPx : viewportH;
+  const extraTopPx = scrollEnabled ? scroll!.extraTopPx : 0;
+
   return (
-    <div ref={containerRef} className="absolute inset-0" aria-label="Bubble field">
+    <div
+      ref={containerRef}
+      onScroll={(e) => {
+        scrollTopRef.current = e.currentTarget.scrollTop;
+      }}
+      className={`absolute inset-0 ${scrollEnabled ? 'overflow-y-auto overflow-x-hidden overscroll-y-contain' : 'overflow-hidden'}`}
+      aria-label="Bubble field"
+    >
       <BulkEditPeopleModal
         open={bulkOpen}
         selectedPeople={selectedPeople}
@@ -557,68 +671,89 @@ export function BubbleField({
           setBulkOpen(false);
         }}
       />
-      {people.map((p, i) => {
-        const xRightPercent = category ? xPercentFromPerson(p, category) : 100;
-        // Trigger warning ring starting 3 days before the limit, swap to a red X when overdue
-        let isWarning = false;
-        let isOverdue = false;
-        const lastMs = Date.parse(p.lastInteraction as any);
-        const last = Number.isFinite(lastMs) ? new Date(lastMs) : new Date();
-        const daysAgo = Math.max(0, daysSince(new Date(), last));
-        const daysAgoInt = Math.floor(daysAgo + 1e-6);
-        if (category) {
-          const limitDays = categoryTimeLimitDays(category);
-          const dangerStart = Math.max(0, limitDays - 3);
-          isOverdue = daysAgo >= limitDays;
-          isWarning = daysAgo >= dangerStart && daysAgo < limitDays;
-        }
-        const y =
-          typeof layout?.yPctById?.[p.id] === 'number'
-            ? layout!.yPctById[p.id]
-            : clamp(((wandOrigin?.y ?? (bounds.height || 1) * 0.42) / Math.max(1, bounds.height || 1)) * 100, 0, 100);
-        const cw = bounds.width || (containerRef.current?.getBoundingClientRect().width ?? 0);
-        const ch = bounds.height || (containerRef.current?.getBoundingClientRect().height ?? (typeof window !== 'undefined' ? window.innerHeight : 0));
-        const targetLeftPx = cw * (mapToViewportPercent(xRightPercent, viewportLeftPadPct, viewportRightPadPct) / 100);
-        const targetTopPx = ch * (y / 100);
-	        const spawnLeftPx = (wandOrigin?.x ?? (cw - WAND_RING_OFFSET_PX));
-	        const spawnTopPx = (wandOrigin?.y ?? ch * 0.5);
-	        const nameStyle = { fontSize: `${labelPx}px` } as React.CSSProperties;
+      {scrollEnabled && (
+        <>
+          {scroll!.extraTopPx > 1 && (
+            <div className="pointer-events-none fixed left-0 right-0 top-0 z-[5] h-16 bg-gradient-to-b from-black/5 to-transparent" aria-hidden="true" />
+          )}
+          {scroll!.extraBottomPx > 1 && (
+            <div className="pointer-events-none fixed left-0 right-0 bottom-0 z-[5] h-24 bg-gradient-to-t from-black/5 to-transparent" aria-hidden="true" />
+          )}
+          {scroll!.extraBottomPx > 1 && (scroll!.maxStackCount ?? 0) > 6 && typeof scroll!.hintXPx === 'number' && (
+            <div
+              className="pointer-events-none fixed z-[6] text-[18px] text-gray-900/25"
+              style={{ left: scroll!.hintXPx, bottom: '78px', transform: 'translateX(-50%)' }}
+              aria-hidden="true"
+            >
+              ⌄
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="relative" style={{ height: `${contentHeightPx}px` }}>
+        {people.map((p, i) => {
+          const xRightPercent = category ? xPercentFromPerson(p, category) : 100;
+          // Trigger warning ring starting 3 days before the limit, swap to a red X when overdue
+          let isWarning = false;
+          let isOverdue = false;
+          const lastMs = Date.parse(p.lastInteraction as any);
+          const last = Number.isFinite(lastMs) ? new Date(lastMs) : new Date();
+          const daysAgo = Math.max(0, daysSince(new Date(), last));
+          const daysAgoInt = Math.floor(daysAgo + 1e-6);
+          if (category) {
+            const limitDays = categoryTimeLimitDays(category);
+            const dangerStart = Math.max(0, limitDays - 3);
+            isOverdue = daysAgo >= limitDays;
+            isWarning = daysAgo >= dangerStart && daysAgo < limitDays;
+          }
+
+          const yPx =
+            typeof layout?.yPxById?.[p.id] === 'number'
+              ? layout!.yPxById[p.id]
+              : (wandOrigin?.y ?? viewportH * 0.42);
+
+          const targetLeftPx = cw * (mapToViewportPercent(xRightPercent, viewportLeftPadPct, viewportRightPadPct) / 100);
+          const targetTopPx = yPx + extraTopPx;
+          const spawnLeftPx = wandOrigin?.x ?? (cw - WAND_RING_OFFSET_PX);
+          const spawnTopPx = (wandOrigin?.y ?? viewportH * 0.5) + scrollTopRef.current;
+          const nameStyle = { fontSize: `${labelPx}px` } as React.CSSProperties;
           const trimmedName = (p.fullName ?? '').trim();
           const isMultiWord = /\s/.test(trimmedName);
-	        const fitScale = labelFitScaleById[p.id] ?? 1;
+          const fitScale = labelFitScaleById[p.id] ?? 1;
           const [firstName, restName] = isMultiWord ? splitNameTwoLines(trimmedName) : [trimmedName, ''];
           const singleWordStyle = { fontSize: `${labelPx * fitScale}px` } as React.CSSProperties;
 
-		        return (
-		          <motion.div
-            key={`${p.id}-${entranceToken}`}
-            className="absolute"
-            style={{ transform: 'translate(-50%, -50%)' }}
-            initial={{
-              left: entranceActive ? spawnLeftPx : targetLeftPx,
-              top: entranceActive ? spawnTopPx : targetTopPx,
-              scale: entranceActive ? 0.1 : 0.6,
-              opacity: 0
-            }}
-	            animate={{
-	              left: targetLeftPx,
-	              top: targetTopPx,
-	              scale: entranceActive ? [0.1, 0.95, 1] : 1,
-	              opacity: layout?.yPctById && Object.prototype.hasOwnProperty.call(layout.yPctById, p.id) ? 1 : 0
-	            }}
-	            transition={{
-	              type: entranceActive ? 'tween' : 'spring',
-	              ease: entranceActive ? [0.16, 1, 0.3, 1] : undefined,
-	              duration: entranceActive ? (2.2 + (i % 3) * 0.4) : undefined,
-	              scale: entranceActive ? { duration: (2.2 + (i % 3) * 0.4), times: [0, 0.35, 1], ease: 'easeOut' } : undefined,
-	              top: entranceActive ? { duration: (2.2 + (i % 3) * 0.4), ease: [0.16, 1, 0.3, 1] } : undefined,
-	              stiffness: entranceActive ? undefined : 600,
-	              damping: entranceActive ? undefined : 32,
-	              mass: entranceActive ? undefined : 0.6
-	            }}
-          >
-            <div className="flex flex-col items-center">
-	              <button
+          return (
+            <motion.div
+              key={`${p.id}-${entranceToken}`}
+              className="absolute"
+              style={{ transform: 'translate(-50%, -50%)' }}
+              initial={{
+                left: entranceActive ? spawnLeftPx : targetLeftPx,
+                top: entranceActive ? spawnTopPx : targetTopPx,
+                scale: entranceActive ? 0.1 : 0.6,
+                opacity: 0
+              }}
+              animate={{
+                left: targetLeftPx,
+                top: targetTopPx,
+                scale: entranceActive ? [0.1, 0.95, 1] : 1,
+                opacity: layout?.yPxById && Object.prototype.hasOwnProperty.call(layout.yPxById, p.id) ? 1 : 0
+              }}
+              transition={{
+                type: entranceActive ? 'tween' : 'spring',
+                ease: entranceActive ? [0.16, 1, 0.3, 1] : undefined,
+                duration: entranceActive ? (2.2 + (i % 3) * 0.4) : undefined,
+                scale: entranceActive ? { duration: (2.2 + (i % 3) * 0.4), times: [0, 0.35, 1], ease: 'easeOut' } : undefined,
+                top: entranceActive ? { duration: (2.2 + (i % 3) * 0.4), ease: [0.16, 1, 0.3, 1] } : undefined,
+                stiffness: entranceActive ? undefined : 600,
+                damping: entranceActive ? undefined : 32,
+                mass: entranceActive ? undefined : 0.6
+              }}
+            >
+              <div className="flex flex-col items-center">
+                <button
 	                type="button"
 	                className={`bubble ${enable3D ? 'bubble-3d' : ''} ${isWarning ? 'bubble-danger' : ''} ${selectedIds.includes(p.id) ? 'ring-4 ring-sky-300/60 ring-offset-2 ring-offset-white/40' : ''}`}
 	                style={{ width: `${bubbleVmin}vmin`, height: `${bubbleVmin}vmin` }}
@@ -683,9 +818,9 @@ export function BubbleField({
                       </div>
                     </div>
                   </div>
-                )}
-              </button>
-		              <div className="mt-2 text-center" style={{ width: `${bubbleVmin}vmin` }}>
+	                )}
+	              </button>
+			              <div className="mt-2 text-center" style={{ width: `${bubbleVmin}vmin` }}>
                     {isMultiWord ? (
                       <div className="font-body tracking-tight-ui text-gray-800 leading-snug" style={nameStyle}>
                         <div className="truncate">{firstName}</div>
@@ -706,11 +841,12 @@ export function BubbleField({
                         </span>
                       </div>
                     )}
-		              </div>
-            </div>
-          </motion.div>
-        );
-      })}
+			              </div>
+	            </div>
+	          </motion.div>
+	        );
+	      })}
+      </div>
     </div>
   );
 }
