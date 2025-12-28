@@ -131,14 +131,14 @@ export function CategoryNav({ category, categories, onOpenCategorySettings, onOp
 	        <GlassButton onClick={onOpenCategorySettings} aria-label="Category Settings" title="Settings">
             <GearIcon className="h-4 w-4" />
           </GlassButton>
-          {onOpenLeaderboard && (
-            <GlassButton onClick={onOpenLeaderboard} aria-label="Leaderboard" title="Leaderboard">
-              <LeaderboardPodiumIcon className="h-4 w-4" strokeWidth={2.5} />
-            </GlassButton>
-          )}
           {onOpenArchive && (
             <GlassButton onClick={onOpenArchive} aria-label="Archive" title="Archive">
               <ArchiveBoxIcon className="h-4 w-4" />
+            </GlassButton>
+          )}
+          {onOpenLeaderboard && (
+            <GlassButton onClick={onOpenLeaderboard} aria-label="Leaderboard" title="Leaderboard">
+              <LeaderboardPodiumIcon className="h-4 w-4" strokeWidth={2.5} />
             </GlassButton>
           )}
 	        {onOpenSearch && (

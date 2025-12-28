@@ -11,6 +11,7 @@ type Row = {
   image?: string;
   daysLeft: number; // can be negative when overdue
   starred?: boolean;
+  interactionCount: number;
 };
 
 type Props = {
@@ -30,10 +31,12 @@ function initialsFromName(fullName: string) {
 
 export function PoppingBubblesModal({ open, onClose, categories, currentCategory, people }: Props) {
   const [scope, setScope] = useState<'all' | 'category'>('all');
+  const [showInteractions, setShowInteractions] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setScope('all');
+    setShowInteractions(false);
   }, [open]);
 
   const rows = useMemo(() => {
@@ -66,12 +69,14 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
       }
       if (!best) continue;
       const starred = members.some((m) => m.starred);
+      const interactionCount = Math.max(0, ...members.map((m) => (typeof m.interactionCount === 'number' ? m.interactionCount : 0)));
       rows.push({
         id: gid,
         fullName: best.p.fullName,
         image: best.p.image,
         daysLeft: best.daysLeft,
         starred,
+        interactionCount,
       });
     }
 
@@ -80,10 +85,23 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
 
   useEffect(() => {
     if (!open) return;
+    const isEditableTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
+      if (e.repeat) return;
+      if (isEditableTarget(e.target)) return;
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
+        setShowInteractions((v) => !v);
+      }
     };
-    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, { passive: false });
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
@@ -131,6 +149,15 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
 	                const name = r.fullName.trim();
 	                const [firstName, ...restParts] = name ? name.split(/\s+/) : ['?', ''];
 	                const restName = restParts.join(' ');
+	                  const interactionBadge =
+	                    r.interactionCount <= 0 ? (
+	                      'No Interactions'
+	                    ) : (
+	                      <>
+	                        <span className="font-bold">{r.interactionCount}</span>
+                          <span>Interaction{r.interactionCount === 1 ? '' : 's'}</span>
+	                      </>
+	                    );
 	                return (
 	                  <div key={r.id} className="flex items-center gap-3 px-4 py-3">
 	                    <div className="w-10 shrink-0 text-right font-code text-sm text-gray-800">
@@ -150,8 +177,13 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
 	                    <div className="min-w-0 flex-1">
 	                      <div className="truncate font-nav tracking-tight-ui text-gray-900 text-[17px] leading-tight">
 	                        <span>{firstName}</span>
-	                        {r.starred && <StarIcon className="ml-1 inline-block h-4 w-4 align-[-2px] text-yellow-500" filled strokeWidth={2.5} />}
 	                        {restName && <span className="ml-1">{restName}</span>}
+	                        {r.starred && <StarIcon className="ml-1 inline-block h-4 w-4 align-[-2px] text-yellow-500" filled strokeWidth={2.5} />}
+	                          {showInteractions && (
+	                            <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-gray-900/35 bg-white/60 px-2 py-0.5 font-code text-[11px] text-gray-900">
+	                              {interactionBadge}
+	                            </span>
+	                          )}
 	                      </div>
 	                    </div>
 

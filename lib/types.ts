@@ -22,6 +22,7 @@ export interface Person {
   categoryId: string;
   context: string;
   lastInteraction: string; // ISO string for localStorage
+  interactionCount?: number; // increments when lastInteraction moves closer to now
   image?: string; // data URL or remote URL
   yPosition: number; // 0 - 100
   duplicateGroupId?: string; // links duplicates across categories

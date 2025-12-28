@@ -95,6 +95,7 @@ export function BubbleField({
   keyboardShortcutsEnabled = true,
   viewportLeftPadPct: viewportLeftPadPctProp,
 }: Props) {
+  const allPeople = useBubbleStore((s) => s.people);
   const systemControls = useBubbleStore((s) => s.systemControls);
   const bulkUpdateLastInteraction = useBubbleStore((s) => s.bulkUpdateLastInteraction);
   const bulkArchivePeople = useBubbleStore((s) => s.bulkArchivePeople);
@@ -114,6 +115,10 @@ export function BubbleField({
   const [touchCapable, setTouchCapable] = useState(false);
   const [hotkeyDeleteOpen, setHotkeyDeleteOpen] = useState(false);
   const [hotkeyDeleteIds, setHotkeyDeleteIds] = useState<string[]>([]);
+  const [pops, setPops] = useState<Array<{ key: string; x: number; y: number; sizeVmin: number }>>([]);
+  const lastPosByIdRef = useRef<Record<string, { x: number; y: number; sizeVmin: number }>>({});
+  const prevVisibleIdsRef = useRef<string[]>([]);
+  const prevCategoryIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setSelectedIds([]);
@@ -161,6 +166,64 @@ export function BubbleField({
       return next.length === prev.length ? prev : next;
     });
   }, [people]);
+
+  // When a bubble is archived, briefly show a "pop" animation at its last position.
+  useEffect(() => {
+    const categoryId = category?.id ?? null;
+    const prevCategoryId = prevCategoryIdRef.current;
+    const prevIds = prevVisibleIdsRef.current;
+    const currentIds = people.map((p) => p.id);
+
+    prevCategoryIdRef.current = categoryId;
+    prevVisibleIdsRef.current = currentIds;
+
+    if (!prevCategoryId || prevCategoryId !== categoryId) return;
+    if (prevIds.length === 0) return;
+
+    const currentSet = new Set(currentIds);
+    const removed = prevIds.filter((id) => !currentSet.has(id));
+    if (removed.length === 0) return;
+
+    const now = Date.now();
+    const toAdd = removed
+      .map((id) => {
+        const p = allPeople.find((x) => x.id === id);
+        if (!p || !p.archivedAt) return null;
+        const pos = lastPosByIdRef.current[id];
+        if (!pos) return null;
+        const key = `${id}-${now}-${Math.random().toString(16).slice(2)}`;
+        return { key, ...pos };
+      })
+      .filter(Boolean) as Array<{ key: string; x: number; y: number; sizeVmin: number }>;
+
+    if (toAdd.length === 0) return;
+    setPops((prev) => [...prev, ...toAdd]);
+    toAdd.forEach((pop) => {
+      window.setTimeout(() => {
+        setPops((prev) => prev.filter((p) => p.key !== pop.key));
+      }, 420);
+    });
+  }, [people, category?.id, allPeople]);
+
+  // Clicking anywhere outside the selected bubbles cancels multi-select.
+  useEffect(() => {
+    if (selectedIds.length === 0) return;
+    if (bulkOpen || hotkeyDeleteOpen) return;
+
+    const onClick = (e: MouseEvent) => {
+      if ((e as any).shiftKey) return;
+      const target = e.target as HTMLElement | null;
+      const bubbleEl = target?.closest?.('[data-bubble-id]') as HTMLElement | null;
+      const bubbleId = bubbleEl?.getAttribute?.('data-bubble-id') ?? null;
+      if (bubbleId && selectedIds.includes(bubbleId)) return;
+      setSelectedIds([]);
+      setShowDaysOverlay(false);
+      setBulkOpen(false);
+    };
+
+    window.addEventListener('click', onClick);
+    return () => window.removeEventListener('click', onClick);
+  }, [selectedIds, bulkOpen, hotkeyDeleteOpen]);
 
   // Optional multi-select hotkeys (configurable in System Controls).
   useEffect(() => {
@@ -844,6 +907,7 @@ export function BubbleField({
 
           const targetLeftPx = cw * (mapToViewportPercent(xRightPercent, viewportLeftPadPct, viewportRightPadPct) / 100);
           const targetTopPx = yPx + extraTopPx;
+          lastPosByIdRef.current[p.id] = { x: targetLeftPx, y: targetTopPx, sizeVmin: bubbleVmin };
           const spawnLeftPx = wandOrigin?.x ?? (cw - WAND_RING_OFFSET_PX);
           const spawnTopPx = (wandOrigin?.y ?? viewportH * 0.5) + scrollTopRef.current;
           const nameStyle = { fontSize: `${labelPx}px` } as React.CSSProperties;
@@ -881,7 +945,7 @@ export function BubbleField({
                 mass: entranceActive ? undefined : 0.6
               }}
             >
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center" data-bubble-id={p.id}>
                 <button
 	                type="button"
 	                className={`bubble ${enable3D ? 'bubble-3d' : ''} ${isWarning ? 'bubble-danger' : ''} ${selectedIds.includes(p.id) ? 'ring-4 ring-sky-300/60 ring-offset-2 ring-offset-white/40' : ''}`}
@@ -975,6 +1039,42 @@ export function BubbleField({
 	          </motion.div>
 	        );
 	      })}
+
+        {pops.map((pop) => (
+          <motion.div
+            key={pop.key}
+            className="pointer-events-none absolute"
+            style={{
+              left: pop.x,
+              top: pop.y,
+              width: `${pop.sizeVmin}vmin`,
+              height: `${pop.sizeVmin}vmin`,
+              transform: 'translate(-50%, -50%)',
+            }}
+            initial={{ opacity: 0.9, scale: 0.35 }}
+            animate={{ opacity: 0, scale: 1.2 }}
+            transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+            aria-hidden="true"
+          >
+            <svg viewBox="0 0 100 100" fill="none" className="h-full w-full">
+              <g stroke="rgb(59 130 246 / 0.85)" strokeWidth="6" strokeLinecap="round">
+                <path d="M50 6 L50 22" />
+                <path d="M50 78 L50 94" />
+                <path d="M6 50 L22 50" />
+                <path d="M78 50 L94 50" />
+                <path d="M18 18 L30 30" />
+                <path d="M70 70 L82 82" />
+                <path d="M18 82 L30 70" />
+                <path d="M70 30 L82 18" />
+                <path d="M30 8 L36 22" />
+                <path d="M70 92 L64 78" />
+                <path d="M8 70 L22 64" />
+                <path d="M92 30 L78 36" />
+              </g>
+              <circle cx="50" cy="50" r="18" stroke="rgb(59 130 246 / 0.35)" strokeWidth="6" />
+            </svg>
+          </motion.div>
+        ))}
       </div>
     </div>
   );

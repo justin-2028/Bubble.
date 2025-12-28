@@ -287,7 +287,7 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
               <div className="mt-4 rounded-xl border border-white/50 bg-white/40 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="font-nav tracking-tight-ui text-gray-900">Multi-select Hotkeys</div>
+                    <div className="font-nav tracking-tight-ui text-gray-900">Multi-Select Hotkeys</div>
                     <div className="mt-0.5 text-xs text-gray-700">Works only while bubbles are selected.</div>
                   </div>
                   <label className="flex items-center gap-2 text-sm text-gray-800">

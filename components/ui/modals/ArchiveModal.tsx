@@ -37,10 +37,13 @@ type Props = {
 export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
   const categories = useBubbleStore((s) => s.categories);
   const people = useBubbleStore((s) => s.people);
+  const systemControls = useBubbleStore((s) => s.systemControls);
   const updatePerson = useBubbleStore((s) => s.updatePerson);
   const restorePerson = useBubbleStore((s) => s.restorePerson);
   const reorderArchivedPeople = useBubbleStore((s) => s.reorderArchivedPeople);
   const deletePerson = useBubbleStore((s) => s.deletePerson);
+  const bulkRestorePeople = useBubbleStore((s) => s.bulkRestorePeople);
+  const bulkDeletePeople = useBubbleStore((s) => s.bulkDeletePeople);
 
   const todayMax = useMemo(() => toDateInputValue(new Date()), []);
 
@@ -91,16 +94,51 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
   const [restoreCategoryId, setRestoreCategoryId] = useState<string>('');
   const [restoreDate, setRestoreDate] = useState<string>(todayMax);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<string[]>([]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const ignoreNextClickRef = useRef(false);
 
   const activePerson = useMemo(() => (activeId ? people.find((p) => p.id === activeId) : undefined), [people, activeId]);
 
+  const restoreSelected = React.useCallback(() => {
+    if (selectedIds.length === 0) return;
+    bulkRestorePeople(selectedIds);
+    setSelectedIds([]);
+    setBulkOpen(false);
+    setBulkDeleteOpen(false);
+    setBulkDeleteIds([]);
+  }, [bulkRestorePeople, selectedIds]);
+
+  const requestBulkDelete = React.useCallback(() => {
+    if (selectedIds.length === 0) return;
+    setBulkDeleteIds([...selectedIds]);
+    setBulkDeleteOpen(true);
+  }, [selectedIds]);
+
+  const confirmBulkDelete = React.useCallback(() => {
+    if (bulkDeleteIds.length === 0) {
+      setBulkDeleteOpen(false);
+      return;
+    }
+    bulkDeletePeople(bulkDeleteIds);
+    setBulkDeleteOpen(false);
+    setBulkDeleteIds([]);
+    setSelectedIds([]);
+    setBulkOpen(false);
+  }, [bulkDeletePeople, bulkDeleteIds]);
+
   useEffect(() => {
     if (!open) return;
     setActiveId(focusPersonId ?? null);
     setConfirmDeleteOpen(false);
+    setSelectedIds([]);
+    setBulkOpen(false);
+    setBulkDeleteOpen(false);
+    setBulkDeleteIds([]);
     setDragId(null);
     setDragOverId(null);
   }, [open, focusPersonId]);
@@ -109,14 +147,31 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (confirmDeleteOpen) setConfirmDeleteOpen(false);
+        if (bulkDeleteOpen) setBulkDeleteOpen(false);
+        else if (confirmDeleteOpen) setConfirmDeleteOpen(false);
+        else if (bulkOpen) setBulkOpen(false);
+        else if (selectedIds.length > 0) setSelectedIds([]);
         else if (activeId) setActiveId(null);
         else onClose();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose, activeId, confirmDeleteOpen]);
+  }, [open, onClose, activeId, confirmDeleteOpen, bulkOpen, bulkDeleteOpen, selectedIds.length]);
+
+  // Keep selection consistent if archived people change (restore/delete).
+  useEffect(() => {
+    if (!open) return;
+    const idSet = new Set(archivedPeople.map((p) => p.id));
+    setSelectedIds((prev) => prev.filter((id) => idSet.has(id)));
+  }, [open, archivedPeople]);
+
+  useEffect(() => {
+    if (selectedIds.length > 0) return;
+    setBulkOpen(false);
+    setBulkDeleteOpen(false);
+    setBulkDeleteIds([]);
+  }, [selectedIds.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -152,6 +207,63 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
     setConfirmDeleteOpen(false);
     setActiveId(null);
   };
+
+  // Optional multi-select hotkeys (configurable in System Controls).
+  useEffect(() => {
+    if (!open) return;
+    if (!systemControls.multiSelectHotkeysEnabled) return;
+    if (selectedIds.length === 0) return;
+    if (bulkDeleteOpen) return;
+
+    const normalizeKeybindKeyString = (key: string): string | null => {
+      if (!key) return null;
+      if (key === ' ' || key === 'Spacebar') return null;
+      if (key.length === 1) return key.toLowerCase();
+      return key;
+    };
+
+    const isEditableTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
+    const archiveKey = normalizeKeybindKeyString(systemControls.multiSelectArchiveKey ?? '');
+    const deleteKey = normalizeKeybindKeyString(systemControls.multiSelectDeleteKey ?? '');
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (isEditableTarget(e.target)) return;
+      const pressed = normalizeKeybindKeyString(e.key);
+      if (!pressed) return;
+
+      // Archive key is treated as "Restore" while in Archive.
+      if (archiveKey && pressed === archiveKey) {
+        e.preventDefault();
+        restoreSelected();
+        return;
+      }
+
+      if (deleteKey && pressed === deleteKey) {
+        e.preventDefault();
+        setBulkDeleteIds([...selectedIds]);
+        setBulkDeleteOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    open,
+    systemControls.multiSelectHotkeysEnabled,
+    systemControls.multiSelectArchiveKey,
+    systemControls.multiSelectDeleteKey,
+    selectedIds,
+    bulkDeleteOpen,
+    restoreSelected,
+  ]);
 
   if (!open) return null;
 
@@ -195,6 +307,7 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
             {archivedPeople.map((p) => {
               const catId = p.archivedFromCategoryId ?? p.categoryId;
               const cat = categoryById.get(catId);
+              const isSelected = selectedIds.includes(p.id);
               return (
                 <button
                   key={p.id}
@@ -236,13 +349,31 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
                     }, 0);
                   }}
                   className={`flex w-[130px] cursor-move flex-col items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/20 ${dragId === p.id ? 'opacity-60' : ''} ${dragOverId === p.id ? 'bg-white/30' : ''}`}
-                  onClick={() => {
+                  onClick={(e) => {
                     if (ignoreNextClickRef.current) return;
+                    if (e.shiftKey) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSelectedIds((prev) => (prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]));
+                      setBulkOpen(false);
+                      return;
+                    }
+
+                    if (selectedIds.length > 0) {
+                      if (selectedIds.includes(p.id)) {
+                        setBulkOpen(true);
+                        return;
+                      }
+                      setSelectedIds([]);
+                    }
+
                     setActiveId(p.id);
                   }}
                   aria-label={`Archived bubble: ${p.fullName}`}
                 >
-                  <div className="bubble relative flex h-16 w-16 items-center justify-center overflow-hidden">
+                  <div
+                    className={`bubble relative flex h-16 w-16 items-center justify-center overflow-hidden ${isSelected ? 'ring-4 ring-sky-300/60 ring-offset-2 ring-offset-white/40' : ''}`}
+                  >
                     {p.image ? (
                       <img src={p.image} alt={p.fullName} className="absolute inset-0 h-full w-full object-cover" />
                     ) : (
@@ -264,6 +395,64 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
 
       </div>
 
+      {bulkOpen && selectedIds.length > 0 && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4" onClick={() => setBulkOpen(false)}>
+          <div
+            className="w-full max-w-md max-h-[85vh] overflow-auto rounded-2xl bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Archived bubbles bulk actions"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-1 text-lg font-display tracking-tight-ui">Selected Bubbles</div>
+            <div className="mb-4 text-sm text-gray-600">
+              {selectedIds.length} selected • Restore them to their archived categories, or delete them.
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <GlassButton type="button" onClick={restoreSelected}>
+                  Restore
+                </GlassButton>
+              </div>
+              <div className="flex items-center gap-2">
+                <GlassButton type="button" intent="destructive" onClick={requestBulkDelete}>
+                  Delete
+                </GlassButton>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setBulkDeleteOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm delete"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-lg font-display tracking-tight-ui mb-2">
+              Delete {bulkDeleteIds.length} bubble{bulkDeleteIds.length === 1 ? '' : 's'}?
+            </div>
+            <p className="text-sm text-gray-600 mb-4">This action can’t be undone.</p>
+            <div className="flex justify-end gap-2">
+              <GlassButton type="button" onClick={() => setBulkDeleteOpen(false)}>
+                Cancel
+              </GlassButton>
+              <GlassButton type="button" intent="destructive" onClick={confirmBulkDelete}>
+                Delete
+              </GlassButton>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Detached action panel (not inside the glass container) to avoid clipping/scroll issues. */}
       {activePerson && (
         <div
@@ -281,7 +470,7 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
             onClick={(e) => e.stopPropagation()}
 	          >
 	            <div className="mb-1 text-lg font-display tracking-tight-ui">{activePerson.fullName}</div>
-	            <div className="mb-4 text-sm text-gray-600">Change its category while archived, restore it, or delete it permanently.</div>
+	            <div className="mb-4 text-sm text-gray-600">Change its category while archived, restore it, or delete it.</div>
 
 	            <label className="block text-sm font-body">
 	              <div className="mb-1 font-nav tracking-tight-ui text-gray-900">Category</div>
@@ -324,14 +513,14 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
               </div>
               <div className="flex items-center gap-2">
                 <GlassButton type="button" intent="destructive" onClick={requestDelete}>
-                  Delete Permanently
+                  Delete
                 </GlassButton>
               </div>
             </div>
 
             {confirmDeleteOpen && (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50/60 p-4">
-                <div className="font-nav tracking-tight-ui text-red-700">Delete permanently?</div>
+                <div className="font-nav tracking-tight-ui text-red-700">Delete?</div>
                 <div className="mt-1 text-sm text-red-700/90">This action can’t be undone.</div>
                 <div className="mt-3 flex justify-end gap-2">
                   <GlassButton type="button" onClick={() => setConfirmDeleteOpen(false)}>

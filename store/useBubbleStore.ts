@@ -11,6 +11,8 @@ type State = {
   labels: Label[];
   currentCategoryId: string | null;
   systemControls: SystemControls;
+  historyPast: UndoSnapshot[];
+  historyFuture: UndoSnapshot[];
 };
 
 type Actions = {
@@ -24,11 +26,14 @@ type Actions = {
   deletePerson: (id: string) => void;
   archivePerson: (id: string) => void;
   restorePerson: (id: string, opts: { categoryId: string; lastInteraction?: string }) => void;
+  undo: () => void;
+  redo: () => void;
   reorderArchivedPeople: (orderedIds: string[]) => void;
   duplicatePersonToCategory: (personId: string, categoryId: string) => void;
   bulkUpdateLastInteraction: (personIds: string[], lastInteractionIso: string) => void;
   bulkDuplicatePeopleToCategory: (personIds: string[], categoryId: string) => void;
   bulkArchivePeople: (personIds: string[]) => void;
+  bulkRestorePeople: (personIds: string[]) => void;
   bulkDeletePeople: (personIds: string[]) => void;
   addLabel: (partial: Pick<Label, 'name' | 'color'>) => string;
   updateLabel: (id: string, patch: Partial<Label>) => void;
@@ -37,6 +42,30 @@ type Actions = {
   importData: (data: ExportSchema) => void;
   exportData: () => ExportSchema;
 };
+
+type UndoSnapshot = {
+  categories: Category[];
+  people: Person[];
+};
+
+const HISTORY_LIMIT = 50;
+
+function pushUndoSnapshot(s: State): Pick<State, 'historyPast' | 'historyFuture'> {
+  const snapshot: UndoSnapshot = { categories: s.categories, people: s.people };
+  const past = s.historyPast ?? [];
+  const last = past[past.length - 1];
+  const isSame = !!last && last.categories === snapshot.categories && last.people === snapshot.people;
+  const nextPast = isSame ? past : [...past, snapshot].slice(-HISTORY_LIMIT);
+  return { historyPast: nextPast, historyFuture: [] };
+}
+
+function isMoreRecentIso(prevIso: string, nextIso: string) {
+  const prev = Date.parse(prevIso as any);
+  const next = Date.parse(nextIso as any);
+  if (!Number.isFinite(next)) return false;
+  if (!Number.isFinite(prev)) return true;
+  return next > prev;
+}
 
 const exampleCategories: Category[] = [
   {
@@ -82,6 +111,7 @@ function samplePeople(cats: Category[]): Person[] {
     categoryId,
     context: '',
     lastInteraction: new Date(Date.now() - daysAgo * 86400000).toISOString(),
+    interactionCount: 0,
     yPosition,
     image: svgAvatarDataUrl(fullName),
     labelIds: [],
@@ -108,6 +138,70 @@ export const useBubbleStore = create<State & Actions>()(
       labels: [],
       currentCategoryId: exampleCategories[0].id,
       systemControls: defaultSystemControls,
+      historyPast: [],
+      historyFuture: [],
+
+      undo: () =>
+        set((s) => {
+          const prev = s.historyPast[s.historyPast.length - 1];
+          if (!prev) return {} as any;
+          const current: UndoSnapshot = { categories: s.categories, people: s.people };
+          const nextPast = s.historyPast.slice(0, -1);
+          const nextFuture = [current, ...s.historyFuture].slice(0, HISTORY_LIMIT);
+          const nextCategories = prev.categories;
+          const labelIdSet = new Set(s.labels.map((l) => l.id));
+          const needsSanitize = prev.people.some((p) => (p.labelIds ?? []).some((id) => !labelIdSet.has(id)));
+          const nextPeople = needsSanitize
+            ? prev.people.map((p) => {
+                const ids = p.labelIds ?? [];
+                if (ids.length === 0) return p;
+                const filtered = ids.filter((id) => labelIdSet.has(id));
+                return filtered.length === ids.length ? p : { ...p, labelIds: filtered };
+              })
+            : prev.people;
+          const currentCategoryId =
+            s.currentCategoryId && nextCategories.some((c) => c.id === s.currentCategoryId)
+              ? s.currentCategoryId
+              : nextCategories[0]?.id ?? null;
+          return {
+            categories: nextCategories,
+            people: nextPeople,
+            currentCategoryId,
+            historyPast: nextPast,
+            historyFuture: nextFuture,
+          };
+        }),
+
+      redo: () =>
+        set((s) => {
+          const next = s.historyFuture[0];
+          if (!next) return {} as any;
+          const current: UndoSnapshot = { categories: s.categories, people: s.people };
+          const nextFuture = s.historyFuture.slice(1);
+          const nextPast = [...s.historyPast, current].slice(-HISTORY_LIMIT);
+          const nextCategories = next.categories;
+          const labelIdSet = new Set(s.labels.map((l) => l.id));
+          const needsSanitize = next.people.some((p) => (p.labelIds ?? []).some((id) => !labelIdSet.has(id)));
+          const nextPeople = needsSanitize
+            ? next.people.map((p) => {
+                const ids = p.labelIds ?? [];
+                if (ids.length === 0) return p;
+                const filtered = ids.filter((id) => labelIdSet.has(id));
+                return filtered.length === ids.length ? p : { ...p, labelIds: filtered };
+              })
+            : next.people;
+          const currentCategoryId =
+            s.currentCategoryId && nextCategories.some((c) => c.id === s.currentCategoryId)
+              ? s.currentCategoryId
+              : nextCategories[0]?.id ?? null;
+          return {
+            categories: nextCategories,
+            people: nextPeople,
+            currentCategoryId,
+            historyPast: nextPast,
+            historyFuture: nextFuture,
+          };
+        }),
 
       setCurrentCategory: (id) => set({ currentCategoryId: id }),
 
@@ -121,13 +215,17 @@ export const useBubbleStore = create<State & Actions>()(
             sortOrder: s.categories.length,
             gradientColors: partial.gradientColors || ['#ffffff', '#f7f7f7', '#ededed']
           };
-          return { categories: [...s.categories, next], currentCategoryId: next.id };
+          return { ...pushUndoSnapshot(s), categories: [...s.categories, next], currentCategoryId: next.id };
         }),
 
       updateCategory: (id, patch) =>
-        set((s) => ({
-          categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c))
-        })),
+        set((s) => {
+          const current = s.categories.find((c) => c.id === id);
+          if (!current) return {} as any;
+          const shouldRecord = Object.entries(patch).some(([k, v]) => typeof v !== 'undefined' && (current as any)[k] !== v);
+          if (!shouldRecord) return {} as any;
+          return { ...pushUndoSnapshot(s), categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) };
+        }),
 
       deleteCategory: (id) =>
         set((s) => {
@@ -136,7 +234,7 @@ export const useBubbleStore = create<State & Actions>()(
           // Preserve archived bubbles even if their last category was deleted.
           const people = s.people.filter((p) => p.categoryId !== id || !!p.archivedAt);
           const currentCategoryId = categories[0]?.id || null;
-          return { categories, people, currentCategoryId };
+          return { ...pushUndoSnapshot(s), categories, people, currentCategoryId };
         }),
 
       reorderCategory: (id, dir) =>
@@ -149,17 +247,19 @@ export const useBubbleStore = create<State & Actions>()(
           list[idx].sortOrder = list[swapWith].sortOrder;
           list[swapWith].sortOrder = tmp;
           const categories = list.sort((a, b) => a.sortOrder - b.sortOrder).map((c, i) => ({ ...c, sortOrder: i }));
-          return { categories };
+          return { ...pushUndoSnapshot(s), categories };
         }),
 
       addPerson: (p) =>
         set((s) => ({
+          ...pushUndoSnapshot(s),
           people: [
             ...s.people,
             {
               ...p,
               id: uid('p_'),
               image: p.image ?? svgAvatarDataUrl(p.fullName),
+              interactionCount: typeof (p as any).interactionCount === 'number' ? (p as any).interactionCount : 0,
             },
           ],
         })),
@@ -169,6 +269,7 @@ export const useBubbleStore = create<State & Actions>()(
           const target = s.people.find((p) => p.id === id);
           if (!target) return { people: s.people };
           const groupId = target.duplicateGroupId ?? target.id;
+          const patchLastInteraction = typeof (patch as any).lastInteraction === 'string' ? ((patch as any).lastInteraction as string) : null;
           const sharedPatch: Partial<Person> = { ...patch };
           delete (sharedPatch as any).categoryId;
           delete (sharedPatch as any).yPosition;
@@ -176,37 +277,75 @@ export const useBubbleStore = create<State & Actions>()(
           delete (sharedPatch as any).archivedFromCategoryId;
           delete (sharedPatch as any).archivedOrder;
           const hasShared = Object.keys(sharedPatch).length > 0;
-          return {
-            people: s.people.map((p) => {
-              const pGroupId = p.duplicateGroupId ?? p.id;
-              if (p.id === id) return { ...p, ...patch };
-              if (hasShared && pGroupId === groupId) return { ...p, ...sharedPatch };
-              return p;
-            })
-          };
+          const patchEntries = Object.entries(patch);
+          const sharedEntries = Object.entries(sharedPatch);
+          let changed = false;
+          const nextPeople = s.people.map((p) => {
+            const pGroupId = p.duplicateGroupId ?? p.id;
+            if (p.id === id) {
+              const differs = patchEntries.some(([k, v]) => (p as any)[k] !== v);
+              if (!differs) return p;
+              changed = true;
+              const next: Person = { ...p, ...patch };
+              if (patchLastInteraction && typeof next.lastInteraction === 'string' && next.lastInteraction !== p.lastInteraction) {
+                if (isMoreRecentIso(p.lastInteraction, next.lastInteraction)) {
+                  next.interactionCount = (typeof p.interactionCount === 'number' ? p.interactionCount : 0) + 1;
+                }
+              }
+              return next;
+            }
+            if (hasShared && pGroupId === groupId) {
+              const differs = sharedEntries.some(([k, v]) => (p as any)[k] !== v);
+              if (!differs) return p;
+              changed = true;
+              const next: Person = { ...p, ...sharedPatch };
+              if (patchLastInteraction && typeof next.lastInteraction === 'string' && next.lastInteraction !== p.lastInteraction) {
+                if (isMoreRecentIso(p.lastInteraction, next.lastInteraction)) {
+                  next.interactionCount = (typeof p.interactionCount === 'number' ? p.interactionCount : 0) + 1;
+                }
+              }
+              return next;
+            }
+            return p;
+          });
+          if (!changed) return {} as any;
+          return { ...pushUndoSnapshot(s), people: nextPeople };
         }),
 
-      deletePerson: (id) => set((s) => ({ people: s.people.filter((x) => x.id !== id) })),
+      deletePerson: (id) =>
+        set((s) => {
+          const exists = s.people.some((p) => p.id === id);
+          if (!exists) return { people: s.people };
+          return { ...pushUndoSnapshot(s), people: s.people.filter((x) => x.id !== id) };
+        }),
 
       archivePerson: (id) =>
-        set((s) => ({
-          people: s.people.map((p) =>
-            p.id === id
-              ? {
-                  ...p,
-                  archivedAt: new Date().toISOString(),
-                  archivedFromCategoryId: p.categoryId,
-                  archivedOrder:
-                    Math.max(
-                      -1,
-                      ...s.people
-                        .filter((x) => !!x.archivedAt)
-                        .map((x) => (typeof x.archivedOrder === 'number' ? x.archivedOrder : -1))
-                    ) + 1,
-                }
-              : p
-          ),
-        })),
+        set((s) => {
+          const target = s.people.find((p) => p.id === id);
+          if (!target) return { people: s.people };
+          if (target.archivedAt) return { people: s.people };
+          const baseOrder =
+            Math.max(
+              -1,
+              ...s.people
+                .filter((x) => !!x.archivedAt)
+                .map((x) => (typeof x.archivedOrder === 'number' ? x.archivedOrder : -1))
+            ) + 1;
+          const now = new Date().toISOString();
+          return {
+            ...pushUndoSnapshot(s),
+            people: s.people.map((p) =>
+              p.id === id
+                ? {
+                    ...p,
+                    archivedAt: now,
+                    archivedFromCategoryId: p.categoryId,
+                    archivedOrder: baseOrder,
+                  }
+                : p
+            ),
+          };
+        }),
 
       restorePerson: (id, opts) =>
         set((s) => {
@@ -215,36 +354,68 @@ export const useBubbleStore = create<State & Actions>()(
           const groupId = target.duplicateGroupId ?? target.id;
           const lastInteraction =
             typeof opts.lastInteraction === 'string' && opts.lastInteraction.length > 0 ? opts.lastInteraction : null;
-          return {
-            people: s.people.map((p) => {
-              const pGroupId = p.duplicateGroupId ?? p.id;
-              const shouldShare = !!lastInteraction && pGroupId === groupId;
-              if (p.id === id) {
-                return {
-                  ...p,
-                  categoryId: opts.categoryId,
-                  ...(shouldShare ? { lastInteraction } : {}),
-                  archivedAt: undefined,
-                  archivedFromCategoryId: undefined,
-                  archivedOrder: undefined,
-                };
+          let changed = false;
+          const nextPeople = s.people.map((p) => {
+            const pGroupId = p.duplicateGroupId ?? p.id;
+            const shouldShare = !!lastInteraction && pGroupId === groupId;
+
+            if (p.id === id) {
+              const next: Person = {
+                ...p,
+                categoryId: opts.categoryId,
+                archivedAt: undefined,
+                archivedFromCategoryId: undefined,
+                archivedOrder: undefined,
+              };
+              if (shouldShare && lastInteraction && lastInteraction !== p.lastInteraction) {
+                next.lastInteraction = lastInteraction;
+                if (isMoreRecentIso(p.lastInteraction, lastInteraction)) {
+                  next.interactionCount = (typeof p.interactionCount === 'number' ? p.interactionCount : 0) + 1;
+                }
               }
-              if (shouldShare) return { ...p, lastInteraction };
-              return p;
-            }),
-          };
+              const differs =
+                next.categoryId !== p.categoryId ||
+                next.archivedAt !== p.archivedAt ||
+                next.archivedFromCategoryId !== p.archivedFromCategoryId ||
+                next.archivedOrder !== p.archivedOrder ||
+                (shouldShare && next.lastInteraction !== p.lastInteraction);
+              if (!differs) return p;
+              changed = true;
+              return next;
+            }
+
+            if (shouldShare && lastInteraction && lastInteraction !== p.lastInteraction) {
+              changed = true;
+              const next: Person = { ...p, lastInteraction };
+              if (isMoreRecentIso(p.lastInteraction, lastInteraction)) {
+                next.interactionCount = (typeof p.interactionCount === 'number' ? p.interactionCount : 0) + 1;
+              }
+              return next;
+            }
+
+            return p;
+          });
+
+          if (!changed) return {} as any;
+          return { ...pushUndoSnapshot(s), people: nextPeople };
         }),
 
       reorderArchivedPeople: (orderedIds) =>
         set((s) => {
           const nextOrder = new Map<string, number>();
           orderedIds.forEach((id, idx) => nextOrder.set(id, idx));
+          let changed = false;
+          const nextPeople = s.people.map((p) => {
+            const order = nextOrder.get(p.id);
+            if (typeof order !== 'number') return p;
+            if (p.archivedOrder === order) return p;
+            changed = true;
+            return { ...p, archivedOrder: order };
+          });
+          if (!changed) return {};
           return {
-            people: s.people.map((p) => {
-              const order = nextOrder.get(p.id);
-              if (typeof order !== 'number') return p;
-              return { ...p, archivedOrder: order };
-            }),
+            ...pushUndoSnapshot(s),
+            people: nextPeople,
           };
         }),
 
@@ -259,7 +430,7 @@ export const useBubbleStore = create<State & Actions>()(
             categoryId,
             duplicateGroupId: groupId,
           };
-          return { people: [...s.people, next] };
+          return { ...pushUndoSnapshot(s), people: [...s.people, next] };
         }),
 
       bulkUpdateLastInteraction: (personIds, lastInteractionIso) =>
@@ -269,13 +440,21 @@ export const useBubbleStore = create<State & Actions>()(
           for (const p of s.people) {
             if (idSet.has(p.id)) groupIdsToUpdate.add(p.duplicateGroupId ?? p.id);
           }
-          return {
-            people: s.people.map((p) => {
-              const gid = p.duplicateGroupId ?? p.id;
-              if (groupIdsToUpdate.has(gid)) return { ...p, lastInteraction: lastInteractionIso };
-              return p;
-            })
-          };
+          if (groupIdsToUpdate.size === 0) return {};
+          let changed = false;
+          const nextPeople = s.people.map((p) => {
+            const gid = p.duplicateGroupId ?? p.id;
+            if (!groupIdsToUpdate.has(gid)) return p;
+            if (p.lastInteraction === lastInteractionIso) return p;
+            changed = true;
+            const next: Person = { ...p, lastInteraction: lastInteractionIso };
+            if (isMoreRecentIso(p.lastInteraction, lastInteractionIso)) {
+              next.interactionCount = (typeof p.interactionCount === 'number' ? p.interactionCount : 0) + 1;
+            }
+            return next;
+          });
+          if (!changed) return {};
+          return { ...pushUndoSnapshot(s), people: nextPeople };
         }),
 
       bulkDuplicatePeopleToCategory: (personIds, categoryId) =>
@@ -292,12 +471,13 @@ export const useBubbleStore = create<State & Actions>()(
               duplicateGroupId: groupId,
             });
           }
-          return nextPeople.length ? { people: [...s.people, ...nextPeople] } : {};
+          return nextPeople.length ? { ...pushUndoSnapshot(s), people: [...s.people, ...nextPeople] } : {};
         }),
 
       bulkArchivePeople: (personIds) =>
         set((s) => {
           const idSet = new Set(personIds);
+          if (idSet.size === 0) return {};
           const baseOrder =
             Math.max(
               -1,
@@ -307,25 +487,58 @@ export const useBubbleStore = create<State & Actions>()(
             ) + 1;
           const nowMs = Date.now();
           let orderInc = 0;
-          return {
-            people: s.people.map((p) => {
-              if (!idSet.has(p.id)) return p;
-              if (p.archivedAt) return p;
-              const idx = orderInc++;
-              return {
-                ...p,
-                archivedAt: new Date(nowMs + idx).toISOString(),
-                archivedFromCategoryId: p.categoryId,
-                archivedOrder: baseOrder + idx,
-              };
-            }),
-          };
+          let changed = false;
+          const nextPeople = s.people.map((p) => {
+            if (!idSet.has(p.id)) return p;
+            if (p.archivedAt) return p;
+            changed = true;
+            const idx = orderInc++;
+            return {
+              ...p,
+              archivedAt: new Date(nowMs + idx).toISOString(),
+              archivedFromCategoryId: p.categoryId,
+              archivedOrder: baseOrder + idx,
+            };
+          });
+          if (!changed) return {};
+          return { ...pushUndoSnapshot(s), people: nextPeople };
+        }),
+
+      bulkRestorePeople: (personIds) =>
+        set((s) => {
+          const idSet = new Set(personIds);
+          if (idSet.size === 0) return {};
+          if (s.categories.length === 0) return {};
+          const ordered = s.categories.slice().sort((a, b) => a.sortOrder - b.sortOrder);
+          const fallbackCategoryId = ordered[0]?.id ?? '';
+          if (!fallbackCategoryId) return {};
+          const categoryIdSet = new Set(s.categories.map((c) => c.id));
+          let changed = false;
+          const nextPeople = s.people.map((p) => {
+            if (!idSet.has(p.id)) return p;
+            if (!p.archivedAt) return p;
+            changed = true;
+            const preferred = p.archivedFromCategoryId ?? p.categoryId;
+            const categoryId = preferred && categoryIdSet.has(preferred) ? preferred : fallbackCategoryId;
+            return {
+              ...p,
+              categoryId,
+              archivedAt: undefined,
+              archivedFromCategoryId: undefined,
+              archivedOrder: undefined,
+            };
+          });
+          if (!changed) return {};
+          return { ...pushUndoSnapshot(s), people: nextPeople };
         }),
 
       bulkDeletePeople: (personIds) =>
         set((s) => {
           const idSet = new Set(personIds);
-          return { people: s.people.filter((p) => !idSet.has(p.id)) };
+          if (idSet.size === 0) return {};
+          const nextPeople = s.people.filter((p) => !idSet.has(p.id));
+          if (nextPeople.length === s.people.length) return {};
+          return { ...pushUndoSnapshot(s), people: nextPeople };
         }),
 
       addLabel: (partial) => {
@@ -392,7 +605,7 @@ export const useBubbleStore = create<State & Actions>()(
           const keepId = s.currentCategoryId && categories.some((c) => c.id === s.currentCategoryId)
             ? s.currentCategoryId
             : categories[0]?.id ?? null;
-          return { categories, people, labels, currentCategoryId: keepId, systemControls };
+          return { categories, people, labels, currentCategoryId: keepId, systemControls, historyPast: [], historyFuture: [] };
         }),
 
       exportData: () => ({ version: 2, categories: get().categories, people: get().people, labels: get().labels, systemControls: get().systemControls })
@@ -400,6 +613,13 @@ export const useBubbleStore = create<State & Actions>()(
 	    {
 	      name: 'bubble-store-v1',
 	      version: 2,
+        partialize: (s) => ({
+          categories: s.categories,
+          people: s.people,
+          labels: s.labels,
+          currentCategoryId: s.currentCategoryId,
+          systemControls: s.systemControls,
+        }),
 	      migrate: (persisted: any) => {
 	        if (!persisted || typeof persisted !== 'object') return persisted as any;
         const categories = Array.isArray(persisted.categories) ? persisted.categories : [];
