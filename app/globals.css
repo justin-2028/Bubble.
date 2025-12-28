@@ -34,6 +34,13 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.45);
 }
 
+.glass-glow-orange {
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 0 0 6px rgba(249, 115, 22, 0.35),
+    0 0 18px rgba(249, 115, 22, 0.22);
+}
+
 /* Bubble style (CSS-only approximation with layered gradients) */
 .bubble {
   position: relative;

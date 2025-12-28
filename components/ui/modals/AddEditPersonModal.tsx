@@ -5,6 +5,8 @@ import { Person } from '../../../lib/types';
 import { GlassButton } from '../GlassButton';
 import { ManageLabelsModal } from './ManageLabelsModal';
 import { svgAvatarDataUrl } from '../../../lib/avatar';
+import { GearIcon } from '../icons/GearIcon';
+import { StarIcon } from '../icons/StarIcon';
 
 function toDateInputValue(d: Date) {
   const year = d.getFullYear();
@@ -159,7 +161,7 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
 	            className="text-base px-3 py-2"
 	            onClick={() => setStarred((v) => !v)}
 	          >
-	            <span className={starred ? 'text-yellow-500' : 'text-gray-500'}>{starred ? '★' : '☆'}</span>
+	            <StarIcon className={`h-5 w-5 ${starred ? 'text-yellow-500' : 'text-gray-900'}`} filled={starred} strokeWidth={2.5} />
 	          </GlassButton>
 	        </div>
 	        <div className="grid grid-cols-1 gap-3">
@@ -191,7 +193,7 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
 	            <div className="mb-1 flex items-center justify-between gap-2">
 	              <div className="font-nav tracking-tight-ui">Labels</div>
 	              <GlassButton type="button" className="px-3 py-1.5" onClick={() => setManageLabelsOpen(true)} aria-label="Manage labels">
-	                ⚙️
+	                <GearIcon className="h-4 w-4" />
 	              </GlassButton>
 	            </div>
 	            <div className="flex flex-wrap gap-2">
@@ -328,15 +330,15 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
               )}
             </div>
             <div className="flex items-center gap-2">
-              {editing && (
-                <GlassButton type="button" onClick={onDelete}>
-                  Delete
-                </GlassButton>
-              )}
               <GlassButton type="button" onClick={editing ? onArchive : onClose}>
                 {editing ? 'Archive' : 'Cancel'}
               </GlassButton>
               <GlassButton type="submit">{editing ? 'Save' : 'Add'}</GlassButton>
+              {editing && (
+                <GlassButton type="button" intent="destructive" onClick={onDelete}>
+                  Delete
+                </GlassButton>
+              )}
             </div>
           </div>
         </div>
@@ -348,7 +350,7 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
 	            <p className="text-sm text-gray-600 mb-4">This action can’t be undone. Their bubble and history will be removed.</p>
 	            <div className="flex justify-end gap-2">
 	              <GlassButton type="button" onClick={() => setConfirmDeleteOpen(false)}>Cancel</GlassButton>
-	              <GlassButton type="button" onClick={confirmDelete}>Delete</GlassButton>
+	              <GlassButton type="button" intent="destructive" onClick={confirmDelete}>Delete</GlassButton>
 	            </div>
 	          </div>
 	        </div>

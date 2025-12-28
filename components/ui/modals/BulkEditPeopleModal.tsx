@@ -29,7 +29,7 @@ type Props = {
 };
 
 export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onClearSelection }: Props) {
-  const { categories, bulkUpdateLastInteraction, bulkDuplicatePeopleToCategory, bulkDeletePeople } = useBubbleStore();
+  const { categories, bulkUpdateLastInteraction, bulkDuplicatePeopleToCategory, bulkArchivePeople, bulkDeletePeople } = useBubbleStore();
   const todayMax = useMemo(() => toDateInputValue(new Date()), []);
   const [date, setDate] = useState<string>(todayMax);
   const [duplicateCategoryId, setDuplicateCategoryId] = useState<string>('');
@@ -71,13 +71,6 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
 
   const updateToToday = () => {
     bulkUpdateLastInteraction(ids, new Date().toISOString());
-    setStatusFor('Updated to today');
-  };
-
-  const updateToDate = () => {
-    const clamped = date > todayMax ? todayMax : date;
-    const iso = isoFromDateInputValue(clamped, { preferNowIfToday: true });
-    bulkUpdateLastInteraction(ids, iso);
     setStatusFor('Updated');
   };
 
@@ -85,6 +78,13 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
     if (!duplicateCategoryId) return;
     bulkDuplicatePeopleToCategory(ids, duplicateCategoryId);
     setStatusFor('Duplicated');
+  };
+
+  const archiveSelected = () => {
+    if (ids.length === 0) return;
+    bulkArchivePeople(ids);
+    setStatusFor('Archived');
+    onClearSelection();
   };
 
   const deleteFromCategory = () => {
@@ -100,7 +100,7 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/35 backdrop-blur-sm" onClick={onClearSelection} />
-      <div className="glass relative z-10 w-[min(720px,94vw)] rounded-2xl p-5">
+      <div className="glass relative z-10 w-[min(560px,92vw)] rounded-2xl p-5">
         <div className="mb-2 flex items-start justify-between gap-4">
           <div>
             <div className="text-2xl font-display tracking-tight-ui">Selected Bubbles</div>
@@ -116,35 +116,34 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
           <div className="rounded-xl border border-white/50 bg-white/40 p-4">
             <div className="mb-2 font-nav tracking-tight-ui text-gray-900">Update Last Interaction</div>
             <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                max={todayMax}
+                className="min-w-[220px] flex-1 rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2 text-sm"
+                value={date}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const clamped = v > todayMax ? todayMax : v;
+                  setDate(clamped);
+                  const iso = isoFromDateInputValue(clamped, { preferNowIfToday: true });
+                  bulkUpdateLastInteraction(ids, iso);
+                  setStatusFor('Updated');
+                }}
+              />
               <GlassButton type="button" onClick={updateToToday}>
-                Set to Today
+                Update to Now
               </GlassButton>
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  max={todayMax}
-                  className="rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2 text-sm"
-                  value={date}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setDate(v > todayMax ? todayMax : v);
-                  }}
-                />
-                <GlassButton type="button" onClick={updateToDate}>
-                  Set to Date
-                </GlassButton>
-              </div>
             </div>
           </div>
 
           <div className="rounded-xl border border-white/50 bg-white/40 p-4">
-            <div className="mb-2 font-nav tracking-tight-ui text-gray-900">Duplicate to Category</div>
+              <div className="mb-2 font-nav tracking-tight-ui text-gray-900">Duplicate to Category</div>
             {selectableCategories.length === 0 ? (
               <div className="text-sm text-gray-700">No other categories available.</div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <select
-                  className="min-w-[240px] rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2 text-sm"
+                  className="min-w-[240px] flex-1 rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2 text-sm"
                   value={duplicateCategoryId}
                   onChange={(e) => setDuplicateCategoryId(e.target.value)}
                 >
@@ -161,16 +160,13 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
             )}
           </div>
 
-          <div className="rounded-xl border border-white/50 bg-white/40 p-4">
-            <div className="mb-2 font-nav tracking-tight-ui text-gray-900">Delete from Category</div>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm text-gray-700">
-                Removes the selected bubbles from this category only.
-              </div>
-              <GlassButton type="button" onClick={deleteFromCategory}>
-                Delete Selected
-              </GlassButton>
-            </div>
+          <div className="flex items-center justify-end gap-2">
+            <GlassButton type="button" onClick={archiveSelected}>
+              Archive
+            </GlassButton>
+            <GlassButton type="button" intent="destructive" onClick={deleteFromCategory}>
+              Delete
+            </GlassButton>
           </div>
         </div>
 
@@ -201,6 +197,7 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
                 </GlassButton>
                 <GlassButton
                   type="button"
+                  intent="destructive"
                   onClick={() => {
                     setConfirmDeleteOpen(false);
                     confirmDelete();

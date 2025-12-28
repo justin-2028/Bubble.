@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useBubbleStore } from '../../../store/useBubbleStore';
 import { GlassButton } from '../GlassButton';
 import { ArchiveBoxIcon } from '../icons/ArchiveBoxIcon';
@@ -37,7 +37,9 @@ type Props = {
 export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
   const categories = useBubbleStore((s) => s.categories);
   const people = useBubbleStore((s) => s.people);
+  const updatePerson = useBubbleStore((s) => s.updatePerson);
   const restorePerson = useBubbleStore((s) => s.restorePerson);
+  const reorderArchivedPeople = useBubbleStore((s) => s.reorderArchivedPeople);
   const deletePerson = useBubbleStore((s) => s.deletePerson);
 
   const todayMax = useMemo(() => toDateInputValue(new Date()), []);
@@ -48,24 +50,50 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
   );
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c] as const)), [categories]);
 
+  const [sortMode, setSortMode] = useState<'custom' | 'recent' | 'name' | 'category'>('recent');
+
   const archivedPeople = useMemo(
-    () =>
-      people
-        .filter((p) => !!p.archivedAt)
-        .slice()
-        .sort((a, b) => {
-          const da = Date.parse(a.archivedAt as any);
-          const db = Date.parse(b.archivedAt as any);
-          const diff = (Number.isFinite(db) ? db : 0) - (Number.isFinite(da) ? da : 0);
-          return diff || a.fullName.localeCompare(b.fullName);
-        }),
-    [people]
+    () => {
+      const list = people.filter((p) => !!p.archivedAt).slice();
+
+      if (sortMode === 'custom') {
+        return list.sort((a, b) => {
+          const oa = typeof a.archivedOrder === 'number' ? a.archivedOrder : Number.MAX_SAFE_INTEGER;
+          const ob = typeof b.archivedOrder === 'number' ? b.archivedOrder : Number.MAX_SAFE_INTEGER;
+          return oa - ob || a.fullName.localeCompare(b.fullName);
+        });
+      }
+
+      if (sortMode === 'name') {
+        return list.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      }
+
+      if (sortMode === 'category') {
+        const catName = (p: (typeof list)[number]) => {
+          const catId = p.archivedFromCategoryId ?? p.categoryId;
+          return categoryById.get(catId)?.name ?? 'Deleted Category';
+        };
+        return list.sort((a, b) => catName(a).localeCompare(catName(b)) || a.fullName.localeCompare(b.fullName));
+      }
+
+      // recent (default)
+      return list.sort((a, b) => {
+        const da = Date.parse(a.archivedAt as any);
+        const db = Date.parse(b.archivedAt as any);
+        const diff = (Number.isFinite(db) ? db : 0) - (Number.isFinite(da) ? da : 0);
+        return diff || a.fullName.localeCompare(b.fullName);
+      });
+    },
+    [people, sortMode, categoryById]
   );
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [restoreCategoryId, setRestoreCategoryId] = useState<string>('');
   const [restoreDate, setRestoreDate] = useState<string>(todayMax);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const ignoreNextClickRef = useRef(false);
 
   const activePerson = useMemo(() => (activeId ? people.find((p) => p.id === activeId) : undefined), [people, activeId]);
 
@@ -73,6 +101,8 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
     if (!open) return;
     setActiveId(focusPersonId ?? null);
     setConfirmDeleteOpen(false);
+    setDragId(null);
+    setDragOverId(null);
   }, [open, focusPersonId]);
 
   useEffect(() => {
@@ -129,18 +159,34 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/35 backdrop-blur-sm" onClick={onClose} />
       <div className="glass relative z-10 w-[min(900px,94vw)] max-h-[90vh] overflow-auto rounded-2xl p-5">
-        <div className="mb-3 flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-2xl font-display tracking-tight-ui">
-              <span>Archive</span>
-              <ArchiveBoxIcon className="h-5 w-5 text-gray-800" />
-            </div>
-            <div className="mt-1 text-sm text-gray-700">Archived bubbles are hidden from categories to help you unclutter!</div>
-          </div>
-          <div className="text-sm text-gray-700">
-            {archivedPeople.length} bubble{archivedPeople.length === 1 ? '' : 's'}
-          </div>
-        </div>
+	        <div className="mb-3 flex items-start justify-between gap-4">
+	          <div>
+	            <div className="flex items-center gap-2 text-2xl font-display tracking-tight-ui">
+	              <span>Archive</span>
+	              <ArchiveBoxIcon className="h-5 w-5 text-gray-800" />
+	            </div>
+	            <div className="mt-1 text-sm text-gray-700">Archived bubbles are hidden from categories to help you unclutter!</div>
+	          </div>
+	          <div className="flex items-center gap-2 text-sm text-gray-700">
+	            <div>{archivedPeople.length} bubble{archivedPeople.length === 1 ? '' : 's'}</div>
+	            {archivedPeople.length > 1 && (
+	              <select
+	                className="rounded-md border border-zinc-200/60 bg-white/60 px-2 py-1"
+                value={sortMode}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === 'custom' || v === 'recent' || v === 'name' || v === 'category') setSortMode(v);
+                }}
+                aria-label="Sort archived bubbles"
+              >
+                <option value="custom">Custom</option>
+                <option value="recent">Recently archived</option>
+                <option value="name">Name</option>
+                <option value="category">Category</option>
+              </select>
+            )}
+	          </div>
+	        </div>
 
         {archivedPeople.length === 0 ? (
           <div className="rounded-xl border border-white/50 bg-white/40 p-5 text-sm text-gray-700">No archived bubbles yet.</div>
@@ -153,8 +199,48 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
                 <button
                   key={p.id}
                   type="button"
-                  className="flex w-[130px] flex-col items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/20"
-                  onClick={() => setActiveId(p.id)}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer?.setData('text/plain', p.id);
+                    e.dataTransfer?.setDragImage?.(e.currentTarget, 0, 0);
+                    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+                    setDragId(p.id);
+                    setDragOverId(null);
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setDragOverId(null);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (dragId && dragId !== p.id) setDragOverId(p.id);
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverId === p.id) setDragOverId(null);
+                  }}
+                  onDrop={() => {
+                    if (!dragId || dragId === p.id) return;
+                    const from = archivedPeople.findIndex((x) => x.id === dragId);
+                    const to = archivedPeople.findIndex((x) => x.id === p.id);
+                    if (from < 0 || to < 0) return;
+                    const next = [...archivedPeople];
+                    const [moved] = next.splice(from, 1);
+                    next.splice(to, 0, moved);
+                    reorderArchivedPeople(next.map((x) => x.id));
+                    setSortMode('custom');
+                    setDragId(null);
+                    setDragOverId(null);
+                    ignoreNextClickRef.current = true;
+                    window.setTimeout(() => {
+                      ignoreNextClickRef.current = false;
+                    }, 0);
+                  }}
+                  className={`flex w-[130px] cursor-move flex-col items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/20 ${dragId === p.id ? 'opacity-60' : ''} ${dragOverId === p.id ? 'bg-white/30' : ''}`}
+                  onClick={() => {
+                    if (ignoreNextClickRef.current) return;
+                    setActiveId(p.id);
+                  }}
+                  aria-label={`Archived bubble: ${p.fullName}`}
                 >
                   <div className="bubble relative flex h-16 w-16 items-center justify-center overflow-hidden">
                     {p.image ? (
@@ -193,20 +279,24 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
             aria-modal="true"
             aria-label="Archived bubble actions"
             onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-1 text-lg font-display tracking-tight-ui">{activePerson.fullName}</div>
-            <div className="mb-4 text-sm text-gray-600">Restore this bubble back into a category, or delete it permanently.</div>
+	          >
+	            <div className="mb-1 text-lg font-display tracking-tight-ui">{activePerson.fullName}</div>
+	            <div className="mb-4 text-sm text-gray-600">Change its category while archived, restore it, or delete it permanently.</div>
 
-            <label className="block text-sm font-body">
-              <div className="mb-1 font-nav tracking-tight-ui text-gray-900">Restore to Category</div>
-              <select
-                className="w-full rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2"
-                value={restoreCategoryId}
-                onChange={(e) => setRestoreCategoryId(e.target.value)}
-              >
-                {orderedCategories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+	            <label className="block text-sm font-body">
+	              <div className="mb-1 font-nav tracking-tight-ui text-gray-900">Category</div>
+	              <select
+	                className="w-full rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2"
+	                value={restoreCategoryId}
+	                onChange={(e) => {
+	                  const v = e.target.value;
+	                  setRestoreCategoryId(v);
+	                  updatePerson(activePerson.id, { archivedFromCategoryId: v });
+	                }}
+	              >
+	                {orderedCategories.map((c) => (
+	                  <option key={c.id} value={c.id}>
+	                    {c.name}
                   </option>
                 ))}
               </select>
@@ -233,7 +323,7 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
                 </GlassButton>
               </div>
               <div className="flex items-center gap-2">
-                <GlassButton type="button" onClick={requestDelete}>
+                <GlassButton type="button" intent="destructive" onClick={requestDelete}>
                   Delete Permanently
                 </GlassButton>
               </div>
@@ -249,6 +339,7 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
                   </GlassButton>
                   <GlassButton
                     type="button"
+                    intent="destructive"
                     onClick={() => {
                       confirmDelete();
                     }}

@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Category, Person } from '../../../lib/types';
 import { categoryTimeLimitDays, daysSince } from '../../../lib/utils';
 import { GlassButton } from '../GlassButton';
+import { StarIcon } from '../icons/StarIcon';
 
 type Row = {
   id: string;
@@ -149,7 +150,7 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
 	                    <div className="min-w-0 flex-1">
 	                      <div className="truncate font-nav tracking-tight-ui text-gray-900 text-[17px] leading-tight">
 	                        <span>{firstName}</span>
-	                        {r.starred && <span className="ml-1 text-yellow-500">★</span>}
+	                        {r.starred && <StarIcon className="ml-1 inline-block h-4 w-4 align-[-2px] text-yellow-500" filled strokeWidth={2.5} />}
 	                        {restName && <span className="ml-1">{restName}</span>}
 	                      </div>
 	                    </div>

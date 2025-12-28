@@ -15,6 +15,8 @@ import {
 import { svgAvatarDataUrl } from '../../lib/avatar';
 import dynamic from 'next/dynamic';
 import { BulkEditPeopleModal } from '../ui/modals/BulkEditPeopleModal';
+import { useBubbleStore } from '../../store/useBubbleStore';
+import { GlassButton } from '../ui/GlassButton';
 
 type Props = {
   category?: Category;
@@ -77,6 +79,13 @@ const SAFE_BOTTOM_PX = 92; // keeps clear of x-axis + bottom UI
 const MIN_SCALE = 0.62;
 const NARROW_LAYOUT_BREAKPOINT_PX = 980;
 
+function normalizeKeybindKeyString(key: string): string | null {
+  if (!key) return null;
+  if (key === ' ' || key === 'Spacebar') return null;
+  if (key.length === 1) return key.toLowerCase();
+  return key;
+}
+
 export function BubbleField({
   category,
   people,
@@ -86,6 +95,10 @@ export function BubbleField({
   keyboardShortcutsEnabled = true,
   viewportLeftPadPct: viewportLeftPadPctProp,
 }: Props) {
+  const systemControls = useBubbleStore((s) => s.systemControls);
+  const bulkUpdateLastInteraction = useBubbleStore((s) => s.bulkUpdateLastInteraction);
+  const bulkArchivePeople = useBubbleStore((s) => s.bulkArchivePeople);
+  const bulkDeletePeople = useBubbleStore((s) => s.bulkDeletePeople);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollTopRef = useRef(0);
   const lastScrollInitRef = useRef<{ categoryId: string; initTop: number } | null>(null);
@@ -99,6 +112,8 @@ export function BubbleField({
   const [bulkOpen, setBulkOpen] = useState(false);
   const [showDaysOverlay, setShowDaysOverlay] = useState(false);
   const [touchCapable, setTouchCapable] = useState(false);
+  const [hotkeyDeleteOpen, setHotkeyDeleteOpen] = useState(false);
+  const [hotkeyDeleteIds, setHotkeyDeleteIds] = useState<string[]>([]);
 
   useEffect(() => {
     setSelectedIds([]);
@@ -146,6 +161,68 @@ export function BubbleField({
       return next.length === prev.length ? prev : next;
     });
   }, [people]);
+
+  // Optional multi-select hotkeys (configurable in System Controls).
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled) return;
+    if (!systemControls.multiSelectHotkeysEnabled) return;
+    if (selectedIds.length === 0) return;
+    if (hotkeyDeleteOpen) return;
+
+    const isEditableTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
+    const updateKey = normalizeKeybindKeyString(systemControls.multiSelectUpdateToNowKey ?? '');
+    const archiveKey = normalizeKeybindKeyString(systemControls.multiSelectArchiveKey ?? '');
+    const deleteKey = normalizeKeybindKeyString(systemControls.multiSelectDeleteKey ?? '');
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (isEditableTarget(e.target)) return;
+      const pressed = normalizeKeybindKeyString(e.key);
+      if (!pressed) return;
+
+      if (updateKey && pressed === updateKey) {
+        e.preventDefault();
+        bulkUpdateLastInteraction(selectedIds, new Date().toISOString());
+        return;
+      }
+
+      if (archiveKey && pressed === archiveKey) {
+        e.preventDefault();
+        bulkArchivePeople(selectedIds);
+        setShowDaysOverlay(false);
+        setSelectedIds([]);
+        setBulkOpen(false);
+        return;
+      }
+
+      if (deleteKey && pressed === deleteKey) {
+        e.preventDefault();
+        setHotkeyDeleteIds([...selectedIds]);
+        setHotkeyDeleteOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    keyboardShortcutsEnabled,
+    selectedIds,
+    systemControls.multiSelectHotkeysEnabled,
+    systemControls.multiSelectUpdateToNowKey,
+    systemControls.multiSelectArchiveKey,
+    systemControls.multiSelectDeleteKey,
+    bulkUpdateLastInteraction,
+    bulkArchivePeople,
+    bulkDeletePeople,
+    hotkeyDeleteOpen,
+  ]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -597,6 +674,17 @@ export function BubbleField({
   const scroll = layout?.scroll;
   const scrollEnabled = !!scroll && scroll.contentHeightPx > bounds.height + 1;
 
+  useEffect(() => {
+    if (!hotkeyDeleteOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      setHotkeyDeleteOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [hotkeyDeleteOpen]);
+
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -671,6 +759,47 @@ export function BubbleField({
           setBulkOpen(false);
         }}
       />
+      {hotkeyDeleteOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setHotkeyDeleteOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm delete"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-lg font-display tracking-tight-ui mb-2">
+              Delete {hotkeyDeleteIds.length} bubble{hotkeyDeleteIds.length === 1 ? '' : 's'}?
+            </div>
+            <p className="text-sm text-gray-600 mb-4">This action can’t be undone.</p>
+            <div className="flex justify-end gap-2">
+              <GlassButton type="button" onClick={() => setHotkeyDeleteOpen(false)}>
+                Cancel
+              </GlassButton>
+              <GlassButton
+                type="button"
+                intent="destructive"
+                onClick={() => {
+                  if (hotkeyDeleteIds.length === 0) {
+                    setHotkeyDeleteOpen(false);
+                    return;
+                  }
+                  bulkDeletePeople(hotkeyDeleteIds);
+                  setHotkeyDeleteOpen(false);
+                  setShowDaysOverlay(false);
+                  setSelectedIds([]);
+                  setBulkOpen(false);
+                }}
+              >
+                Delete
+              </GlassButton>
+            </div>
+          </div>
+        </div>
+      )}
       {scrollEnabled && (
         <>
           {scroll!.extraTopPx > 1 && (

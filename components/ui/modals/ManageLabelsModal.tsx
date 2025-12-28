@@ -64,6 +64,7 @@ export function ManageLabelsModal({ open, onClose }: Props) {
                   />
                   <GlassButton
                     type="button"
+                    intent="destructive"
                     onClick={() => {
                       if (confirm(`Delete label “${l.name}”? This removes it from all bubbles.`)) deleteLabel(l.id);
                     }}

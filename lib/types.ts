@@ -29,6 +29,16 @@ export interface Person {
   starred?: boolean;
   archivedAt?: string; // ISO string when archived
   archivedFromCategoryId?: string; // last category before archive
+  archivedOrder?: number; // manual ordering within Archive
+}
+
+export type Keybind = string | null;
+
+export interface SystemControls {
+  multiSelectHotkeysEnabled: boolean;
+  multiSelectUpdateToNowKey: Keybind;
+  multiSelectArchiveKey: Keybind;
+  multiSelectDeleteKey: Keybind;
 }
 
 export interface ExportSchema {
@@ -36,4 +46,5 @@ export interface ExportSchema {
   categories: Category[];
   people: Person[];
   labels?: Label[];
+  systemControls?: SystemControls;
 }

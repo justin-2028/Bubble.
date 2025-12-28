@@ -1,7 +1,7 @@
 "use client";
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Category, ExportSchema, Label, Person } from '../lib/types';
+import { Category, ExportSchema, Label, Person, SystemControls } from '../lib/types';
 import { uid, formatDateISO } from '../lib/utils';
 import { svgAvatarDataUrl } from '../lib/avatar';
 
@@ -10,6 +10,7 @@ type State = {
   people: Person[];
   labels: Label[];
   currentCategoryId: string | null;
+  systemControls: SystemControls;
 };
 
 type Actions = {
@@ -23,13 +24,16 @@ type Actions = {
   deletePerson: (id: string) => void;
   archivePerson: (id: string) => void;
   restorePerson: (id: string, opts: { categoryId: string; lastInteraction?: string }) => void;
+  reorderArchivedPeople: (orderedIds: string[]) => void;
   duplicatePersonToCategory: (personId: string, categoryId: string) => void;
   bulkUpdateLastInteraction: (personIds: string[], lastInteractionIso: string) => void;
   bulkDuplicatePeopleToCategory: (personIds: string[], categoryId: string) => void;
+  bulkArchivePeople: (personIds: string[]) => void;
   bulkDeletePeople: (personIds: string[]) => void;
   addLabel: (partial: Pick<Label, 'name' | 'color'>) => string;
   updateLabel: (id: string, patch: Partial<Label>) => void;
   deleteLabel: (id: string) => void;
+  updateSystemControls: (patch: Partial<SystemControls>) => void;
   importData: (data: ExportSchema) => void;
   exportData: () => ExportSchema;
 };
@@ -62,6 +66,13 @@ const exampleCategories: Category[] = [
 ];
 
 const todayISO = formatDateISO(new Date());
+
+const defaultSystemControls: SystemControls = {
+  multiSelectHotkeysEnabled: false,
+  multiSelectUpdateToNowKey: null,
+  multiSelectArchiveKey: null,
+  multiSelectDeleteKey: null,
+};
 
 function samplePeople(cats: Category[]): Person[] {
   const [c1, c2, c3] = cats;
@@ -96,6 +107,7 @@ export const useBubbleStore = create<State & Actions>()(
       people: samplePeople(exampleCategories),
       labels: [],
       currentCategoryId: exampleCategories[0].id,
+      systemControls: defaultSystemControls,
 
       setCurrentCategory: (id) => set({ currentCategoryId: id }),
 
@@ -160,6 +172,9 @@ export const useBubbleStore = create<State & Actions>()(
           const sharedPatch: Partial<Person> = { ...patch };
           delete (sharedPatch as any).categoryId;
           delete (sharedPatch as any).yPosition;
+          delete (sharedPatch as any).archivedAt;
+          delete (sharedPatch as any).archivedFromCategoryId;
+          delete (sharedPatch as any).archivedOrder;
           const hasShared = Object.keys(sharedPatch).length > 0;
           return {
             people: s.people.map((p) => {
@@ -181,6 +196,13 @@ export const useBubbleStore = create<State & Actions>()(
                   ...p,
                   archivedAt: new Date().toISOString(),
                   archivedFromCategoryId: p.categoryId,
+                  archivedOrder:
+                    Math.max(
+                      -1,
+                      ...s.people
+                        .filter((x) => !!x.archivedAt)
+                        .map((x) => (typeof x.archivedOrder === 'number' ? x.archivedOrder : -1))
+                    ) + 1,
                 }
               : p
           ),
@@ -204,10 +226,24 @@ export const useBubbleStore = create<State & Actions>()(
                   ...(shouldShare ? { lastInteraction } : {}),
                   archivedAt: undefined,
                   archivedFromCategoryId: undefined,
+                  archivedOrder: undefined,
                 };
               }
               if (shouldShare) return { ...p, lastInteraction };
               return p;
+            }),
+          };
+        }),
+
+      reorderArchivedPeople: (orderedIds) =>
+        set((s) => {
+          const nextOrder = new Map<string, number>();
+          orderedIds.forEach((id, idx) => nextOrder.set(id, idx));
+          return {
+            people: s.people.map((p) => {
+              const order = nextOrder.get(p.id);
+              if (typeof order !== 'number') return p;
+              return { ...p, archivedOrder: order };
             }),
           };
         }),
@@ -259,6 +295,33 @@ export const useBubbleStore = create<State & Actions>()(
           return nextPeople.length ? { people: [...s.people, ...nextPeople] } : {};
         }),
 
+      bulkArchivePeople: (personIds) =>
+        set((s) => {
+          const idSet = new Set(personIds);
+          const baseOrder =
+            Math.max(
+              -1,
+              ...s.people
+                .filter((x) => !!x.archivedAt)
+                .map((x) => (typeof x.archivedOrder === 'number' ? x.archivedOrder : -1))
+            ) + 1;
+          const nowMs = Date.now();
+          let orderInc = 0;
+          return {
+            people: s.people.map((p) => {
+              if (!idSet.has(p.id)) return p;
+              if (p.archivedAt) return p;
+              const idx = orderInc++;
+              return {
+                ...p,
+                archivedAt: new Date(nowMs + idx).toISOString(),
+                archivedFromCategoryId: p.categoryId,
+                archivedOrder: baseOrder + idx,
+              };
+            }),
+          };
+        }),
+
       bulkDeletePeople: (personIds) =>
         set((s) => {
           const idSet = new Set(personIds);
@@ -294,6 +357,11 @@ export const useBubbleStore = create<State & Actions>()(
           })),
         })),
 
+      updateSystemControls: (patch) =>
+        set((s) => ({
+          systemControls: { ...s.systemControls, ...patch },
+        })),
+
       importData: (data) =>
         set((s) => {
           const categories = (data.categories ?? []).map((c) => ({
@@ -307,25 +375,46 @@ export const useBubbleStore = create<State & Actions>()(
             duplicateGroupId: (p as any).duplicateGroupId,
             archivedAt: typeof (p as any).archivedAt === 'string' ? (p as any).archivedAt : undefined,
             archivedFromCategoryId: typeof (p as any).archivedFromCategoryId === 'string' ? (p as any).archivedFromCategoryId : undefined,
+            archivedOrder: typeof (p as any).archivedOrder === 'number' ? (p as any).archivedOrder : undefined,
           }));
           const labels = (data as any).labels ?? [];
+          const sc = (data as any).systemControls;
+          const systemControls: SystemControls =
+            sc && typeof sc === 'object'
+              ? {
+                  multiSelectHotkeysEnabled: typeof sc.multiSelectHotkeysEnabled === 'boolean' ? sc.multiSelectHotkeysEnabled : s.systemControls.multiSelectHotkeysEnabled,
+                  multiSelectUpdateToNowKey: typeof sc.multiSelectUpdateToNowKey === 'string' ? sc.multiSelectUpdateToNowKey : null,
+                  multiSelectArchiveKey: typeof sc.multiSelectArchiveKey === 'string' ? sc.multiSelectArchiveKey : null,
+                  multiSelectDeleteKey: typeof sc.multiSelectDeleteKey === 'string' ? sc.multiSelectDeleteKey : null,
+                }
+              : s.systemControls;
           // Preserve currentCategoryId if it still exists after import; otherwise fallback to first
           const keepId = s.currentCategoryId && categories.some((c) => c.id === s.currentCategoryId)
             ? s.currentCategoryId
             : categories[0]?.id ?? null;
-          return { categories, people, labels, currentCategoryId: keepId };
+          return { categories, people, labels, currentCategoryId: keepId, systemControls };
         }),
 
-      exportData: () => ({ version: 2, categories: get().categories, people: get().people, labels: get().labels })
+      exportData: () => ({ version: 2, categories: get().categories, people: get().people, labels: get().labels, systemControls: get().systemControls })
 	    }),
 	    {
 	      name: 'bubble-store-v1',
 	      version: 2,
 	      migrate: (persisted: any) => {
 	        if (!persisted || typeof persisted !== 'object') return persisted as any;
-	        const categories = Array.isArray(persisted.categories) ? persisted.categories : [];
+        const categories = Array.isArray(persisted.categories) ? persisted.categories : [];
         const people = Array.isArray(persisted.people) ? persisted.people : [];
         const labels = Array.isArray(persisted.labels) ? persisted.labels : [];
+        const sc = persisted.systemControls;
+        const systemControls: SystemControls =
+          sc && typeof sc === 'object'
+            ? {
+                multiSelectHotkeysEnabled: typeof sc.multiSelectHotkeysEnabled === 'boolean' ? sc.multiSelectHotkeysEnabled : defaultSystemControls.multiSelectHotkeysEnabled,
+                multiSelectUpdateToNowKey: typeof sc.multiSelectUpdateToNowKey === 'string' ? sc.multiSelectUpdateToNowKey : null,
+                multiSelectArchiveKey: typeof sc.multiSelectArchiveKey === 'string' ? sc.multiSelectArchiveKey : null,
+                multiSelectDeleteKey: typeof sc.multiSelectDeleteKey === 'string' ? sc.multiSelectDeleteKey : null,
+              }
+            : defaultSystemControls;
         return {
           ...persisted,
           categories: categories.map((c: any) => ({ ...c, description: c.description ?? '' })),
@@ -336,8 +425,10 @@ export const useBubbleStore = create<State & Actions>()(
             duplicateGroupId: p.duplicateGroupId,
             archivedAt: typeof p.archivedAt === 'string' ? p.archivedAt : undefined,
             archivedFromCategoryId: typeof p.archivedFromCategoryId === 'string' ? p.archivedFromCategoryId : undefined,
+            archivedOrder: typeof p.archivedOrder === 'number' ? p.archivedOrder : undefined,
           })),
           labels,
+          systemControls,
         } as any;
       },
     }
