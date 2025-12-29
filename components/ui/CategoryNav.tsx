@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { Category } from '../../lib/types';
 import { useBubbleStore } from '../../store/useBubbleStore';
 import { GlassButton } from './GlassButton';
@@ -55,14 +55,14 @@ type Props = {
 export function CategoryNav({ category, categories, onOpenCategorySettings, onOpenLeaderboard, onOpenArchive, onOpenSearch, keyboardNavEnabled = true }: Props) {
   const { setCurrentCategory, addCategory } = useBubbleStore();
   const [open, setOpen] = React.useState(false);
-  const ordered = categories.slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  const ordered = useMemo(() => categories.slice().sort((a, b) => a.sortOrder - b.sortOrder), [categories]);
 
-  const go = (dir: -1 | 1) => {
+  const go = useCallback((dir: -1 | 1) => {
     if (!category) return;
     const idx = ordered.findIndex((c) => c.id === category.id);
     const next = ordered[idx + dir];
     if (next) setCurrentCategory(next.id);
-  };
+  }, [category, ordered, setCurrentCategory]);
 
   useEffect(() => {
     if (!keyboardNavEnabled) return;
@@ -70,13 +70,33 @@ export function CategoryNav({ category, categories, onOpenCategorySettings, onOp
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase?.();
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) return;
-      if (e.key === 'ArrowLeft') go(-1);
-      if (e.key === 'ArrowRight') go(1);
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const key = e.key || '';
+      const lower = key.toLowerCase();
+
+      if (key === 'ArrowLeft' || lower === 'a') {
+        e.preventDefault();
+        go(-1);
+        return;
+      }
+      if (key === 'ArrowRight' || lower === 'd') {
+        e.preventDefault();
+        go(1);
+        return;
+      }
+
+      if (/^[1-9]$/.test(key)) {
+        const idx = Number(key) - 1;
+        const next = ordered[idx];
+        if (!next) return;
+        e.preventDefault();
+        setCurrentCategory(next.id);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category?.id, categories.length, keyboardNavEnabled]);
+  }, [keyboardNavEnabled, go, ordered, setCurrentCategory]);
 
   const idx = category ? ordered.findIndex((c) => c.id === category.id) : -1;
   const hasPrev = idx > 0;
