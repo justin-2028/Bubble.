@@ -369,28 +369,29 @@ export function BubbleField({
     const lineHeightMult = 1.35; // matches leading-snug closely, but stays stable
     const lineCountForPerson = (fullName: string) => (/\s/.test(fullName.trim()) ? 2 : 1);
 
-    // Solve scale in-place to avoid state-driven oscillations (especially in split-screen).
-    let scale = clamp(layoutScale, MIN_SCALE, 1);
-    for (let iter = 0; iter < 8; iter++) {
-      const bubbleSizePx = baseBubbleVmin * vminPx * scale;
+    // Solve a stable scale (avoid oscillations that can cause React update-depth crashes).
+    const computeTightHeight = (candidateScale: number) => {
+      const bubbleSizePx = baseBubbleVmin * vminPx * candidateScale;
       const bubbleRadiusPx = bubbleSizePx / 2;
-      const visualPadPx = BUBBLE_VISUAL_PAD_PX * scale;
-      const labelMarginPx = LABEL_MARGIN_PX * scale;
-      const labelPxScaled = baseLabelPx * scale;
+      const visualPadPx = BUBBLE_VISUAL_PAD_PX * candidateScale;
+      const labelMarginPx = LABEL_MARGIN_PX * candidateScale;
+      const labelPxScaled = baseLabelPx * candidateScale;
 
-      const nodes = people.map((p) => {
-        const xRightPercent = xPercentFromPerson(p, category);
-        const xPx = (mapToViewportPercent(xRightPercent, viewportLeftPadPct, viewportRightPadPct) / 100) * bounds.width;
-        const halfW = bubbleRadiusPx + visualPadPx;
-        const labelHeightPx = labelPxScaled * lineHeightMult * lineCountForPerson(p.fullName);
-        return {
-          id: p.id,
-          startX: xPx - halfW,
-          endX: xPx + halfW,
-          upPx: bubbleRadiusPx + visualPadPx,
-          downPx: bubbleRadiusPx + visualPadPx + labelMarginPx + labelHeightPx,
-        };
-      }).sort((a, b) => (a.startX - b.startX) || a.id.localeCompare(b.id));
+      const nodes = people
+        .map((p) => {
+          const xRightPercent = xPercentFromPerson(p, category);
+          const xPx = (mapToViewportPercent(xRightPercent, viewportLeftPadPct, viewportRightPadPct) / 100) * bounds.width;
+          const halfW = bubbleRadiusPx + visualPadPx;
+          const labelHeightPx = labelPxScaled * lineHeightMult * lineCountForPerson(p.fullName);
+          return {
+            id: p.id,
+            startX: xPx - halfW,
+            endX: xPx + halfW,
+            upPx: bubbleRadiusPx + visualPadPx,
+            downPx: bubbleRadiusPx + visualPadPx + labelMarginPx + labelHeightPx,
+          };
+        })
+        .sort((a, b) => (a.startX - b.startX) || a.id.localeCompare(b.id));
 
       const lanes: BubbleLane[] = [];
       for (const n of nodes) {
@@ -418,14 +419,17 @@ export function BubbleField({
         else if (i % 2 === 1) laneToSlot[i] = -Math.ceil(i / 2);
         else laneToSlot[i] = Math.ceil(i / 2);
       }
-      const slotToLane: Record<number, number> = Object.fromEntries(Object.entries(laneToSlot).map(([laneIdx, slot]) => [slot, Number(laneIdx)]));
+      const slotToLane: Record<number, number> = Object.fromEntries(
+        Object.entries(laneToSlot).map(([laneIdx, slot]) => [slot, Number(laneIdx)])
+      );
       const maxUpSlots = Math.max(0, ...Object.values(laneToSlot).map((s) => -Math.min(0, s)));
       const maxDownSlots = Math.max(0, ...Object.values(laneToSlot).map((s) => Math.max(0, s)));
 
       const laneUp = lanes.map((l) => l.upPx);
       const laneDown = lanes.map((l) => l.downPx);
       const laneY: Record<number, number> = {};
-      laneY[0] = baselineY;
+      // Baseline value doesn't affect height, so keep it constant.
+      laneY[0] = 0;
 
       for (let s = 1; s <= maxUpSlots; s++) {
         const laneIdx = slotToLane[-s];
@@ -452,15 +456,29 @@ export function BubbleField({
         clusterBottom = Math.max(clusterBottom, y + (laneDown[li] ?? 0));
       }
       const tightHeight = clusterBottom - clusterTop;
-      if (!Number.isFinite(tightHeight) || tightHeight <= 1) break;
+      return Number.isFinite(tightHeight) ? tightHeight : Infinity;
+    };
 
-      const next = Math.round(clamp(scale * (availableHeight / tightHeight) * 0.98, MIN_SCALE, 1) * 100) / 100;
-      if (Math.abs(next - scale) <= 0.01) {
-        scale = next;
-        break;
+    const targetHeight = availableHeight * 0.98;
+    let scale = 1;
+    const hAt1 = computeTightHeight(1);
+    if (hAt1 > targetHeight) {
+      const hAtMin = computeTightHeight(MIN_SCALE);
+      if (hAtMin >= targetHeight) {
+        scale = MIN_SCALE;
+      } else {
+        let lo = MIN_SCALE;
+        let hi = 1;
+        for (let iter = 0; iter < 14; iter++) {
+          const mid = (lo + hi) / 2;
+          const h = computeTightHeight(mid);
+          if (h <= targetHeight) lo = mid;
+          else hi = mid;
+        }
+        scale = lo;
       }
-      scale = next;
     }
+    scale = Math.round(clamp(scale, MIN_SCALE, 1) * 1000) / 1000;
 
     // With scale solved, compute full layout with variance.
     const bubbleSizePx = baseBubbleVmin * vminPx * scale;
@@ -643,11 +661,11 @@ export function BubbleField({
     setLayoutByCategory((prev) => {
       const prevEntry = prev[category.id];
       const prevScale = prevEntry?.scale ?? 1;
-      const nextScale = Math.round(scale * 100) / 100;
+      const nextScale = scale;
       const prevScroll = prevEntry?.scroll;
       const prevMap = prevEntry?.yPxById ?? {};
       if (
-        Math.abs(prevScale - nextScale) <= 0.001 &&
+        Math.abs(prevScale - nextScale) <= 0.002 &&
         prevScroll &&
         prevScroll.extraTopPx === nextScroll.extraTopPx &&
         prevScroll.extraBottomPx === nextScroll.extraBottomPx &&
@@ -676,7 +694,6 @@ export function BubbleField({
     wandOrigin,
     baseBubbleVmin,
     baseLabelPx,
-    layoutScale,
     entranceToken,
     varianceSlackMultiplier,
     varianceMaxPx,
