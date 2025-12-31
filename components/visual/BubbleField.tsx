@@ -965,7 +965,7 @@ export function BubbleField({
               <div className="flex flex-col items-center" data-bubble-id={p.id}>
                 <button
 	                type="button"
-	                className={`bubble ${enable3D ? 'bubble-3d' : ''} ${isWarning ? 'bubble-danger' : ''} ${selectedIds.includes(p.id) ? 'ring-4 ring-sky-300/60 ring-offset-2 ring-offset-white/40' : ''}`}
+	                className={`bubble ${enable3D ? 'bubble-3d' : ''} ${isWarning ? 'bubble-danger' : ''} ${p.starred && !selectedIds.includes(p.id) ? 'bubble-starred' : ''} ${selectedIds.includes(p.id) ? 'ring-4 ring-sky-300/60 ring-offset-2 ring-offset-white/40' : ''}`}
 	                style={{ width: `${bubbleVmin}vmin`, height: `${bubbleVmin}vmin` }}
 	                onClick={(e) => {
 	                  if (e.shiftKey) {

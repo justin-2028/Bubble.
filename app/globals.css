@@ -61,6 +61,22 @@ body {
     0 18px 42px rgba(0,0,0,0.2);
 }
 
+.bubble-starred {
+  isolation: isolate;
+}
+
+.bubble-starred::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  box-shadow:
+    0 0 0 4px rgba(234, 179, 8, 0.55),
+    0 0 18px rgba(234, 179, 8, 0.25);
+}
+
 @keyframes spinGrad {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
