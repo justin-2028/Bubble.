@@ -21,9 +21,11 @@ type Actions = {
   updateCategory: (id: string, patch: Partial<Category>) => void;
   deleteCategory: (id: string) => void;
   reorderCategory: (id: string, dir: -1 | 1) => void;
+  reorderCategories: (orderedIds: string[]) => void;
   addPerson: (p: Omit<Person, 'id'>) => void;
   updatePerson: (id: string, patch: Partial<Person>) => void;
   deletePerson: (id: string) => void;
+  deleteDuplicateGroup: (id: string) => void;
   archivePerson: (id: string) => void;
   restorePerson: (id: string, opts: { categoryId: string; lastInteraction?: string }) => void;
   undo: () => void;
@@ -31,6 +33,7 @@ type Actions = {
   reorderArchivedPeople: (orderedIds: string[]) => void;
   duplicatePersonToCategory: (personId: string, categoryId: string) => void;
   bulkUpdateLastInteraction: (personIds: string[], lastInteractionIso: string) => void;
+  bulkMovePeopleToCategory: (personIds: string[], categoryId: string) => void;
   bulkDuplicatePeopleToCategory: (personIds: string[], categoryId: string) => void;
   bulkArchivePeople: (personIds: string[]) => void;
   bulkRestorePeople: (personIds: string[]) => void;
@@ -250,6 +253,41 @@ export const useBubbleStore = create<State & Actions>()(
           return { ...pushUndoSnapshot(s), categories };
         }),
 
+      reorderCategories: (orderedIds) =>
+        set((s) => {
+          if (!Array.isArray(orderedIds) || orderedIds.length === 0) return {};
+          const currentOrdered = s.categories.slice().sort((a, b) => a.sortOrder - b.sortOrder);
+          const currentIds = currentOrdered.map((c) => c.id);
+          const existing = new Set(currentIds);
+          const seen = new Set<string>();
+          const nextIds: string[] = [];
+          for (const id of orderedIds) {
+            if (!existing.has(id)) continue;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            nextIds.push(id);
+          }
+          for (const id of currentIds) {
+            if (seen.has(id)) continue;
+            seen.add(id);
+            nextIds.push(id);
+          }
+          const byId = new Map(nextIds.map((id, idx) => [id, idx] as const));
+          let changed = false;
+          const categories = s.categories
+            .map((c) => {
+              const nextOrder = byId.get(c.id);
+              if (typeof nextOrder !== 'number') return c;
+              if (c.sortOrder === nextOrder) return c;
+              changed = true;
+              return { ...c, sortOrder: nextOrder };
+            })
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((c, idx) => (c.sortOrder === idx ? c : { ...c, sortOrder: idx }));
+          if (!changed) return {};
+          return { ...pushUndoSnapshot(s), categories };
+        }),
+
       addPerson: (p) =>
         set((s) => ({
           ...pushUndoSnapshot(s),
@@ -317,6 +355,16 @@ export const useBubbleStore = create<State & Actions>()(
           const exists = s.people.some((p) => p.id === id);
           if (!exists) return { people: s.people };
           return { ...pushUndoSnapshot(s), people: s.people.filter((x) => x.id !== id) };
+        }),
+
+      deleteDuplicateGroup: (id) =>
+        set((s) => {
+          const target = s.people.find((p) => p.id === id);
+          if (!target) return {};
+          const groupId = target.duplicateGroupId ?? target.id;
+          const nextPeople = s.people.filter((p) => (p.duplicateGroupId ?? p.id) !== groupId);
+          if (nextPeople.length === s.people.length) return {};
+          return { ...pushUndoSnapshot(s), people: nextPeople };
         }),
 
       archivePerson: (id) =>
@@ -452,6 +500,23 @@ export const useBubbleStore = create<State & Actions>()(
               next.interactionCount = (typeof p.interactionCount === 'number' ? p.interactionCount : 0) + 1;
             }
             return next;
+          });
+          if (!changed) return {};
+          return { ...pushUndoSnapshot(s), people: nextPeople };
+        }),
+
+      bulkMovePeopleToCategory: (personIds, categoryId) =>
+        set((s) => {
+          const idSet = new Set(personIds);
+          if (idSet.size === 0) return {};
+          const categoryExists = s.categories.some((c) => c.id === categoryId);
+          if (!categoryExists) return {};
+          let changed = false;
+          const nextPeople = s.people.map((p) => {
+            if (!idSet.has(p.id)) return p;
+            if (p.categoryId === categoryId) return p;
+            changed = true;
+            return { ...p, categoryId };
           });
           if (!changed) return {};
           return { ...pushUndoSnapshot(s), people: nextPeople };

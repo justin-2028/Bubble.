@@ -29,9 +29,10 @@ type Props = {
 };
 
 export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onClearSelection }: Props) {
-  const { categories, bulkUpdateLastInteraction, bulkDuplicatePeopleToCategory, bulkArchivePeople, bulkDeletePeople } = useBubbleStore();
+  const { categories, bulkUpdateLastInteraction, bulkMovePeopleToCategory, bulkDuplicatePeopleToCategory, bulkArchivePeople, bulkDeletePeople } = useBubbleStore();
   const todayMax = useMemo(() => toDateInputValue(new Date()), []);
   const [date, setDate] = useState<string>(todayMax);
+  const [moveCategoryId, setMoveCategoryId] = useState<string>('');
   const [duplicateCategoryId, setDuplicateCategoryId] = useState<string>('');
   const [status, setStatus] = useState<string>('');
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -44,6 +45,7 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
   useEffect(() => {
     if (!open) return;
     setDate(todayMax);
+    setMoveCategoryId(selectableCategories[0]?.id ?? '');
     setDuplicateCategoryId(selectableCategories[0]?.id ?? '');
     setStatus('');
     setConfirmDeleteOpen(false);
@@ -72,6 +74,13 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
   const updateToToday = () => {
     bulkUpdateLastInteraction(ids, new Date().toISOString());
     setStatusFor('Updated');
+  };
+
+  const moveToCategory = () => {
+    if (!moveCategoryId) return;
+    bulkMovePeopleToCategory(ids, moveCategoryId);
+    setStatusFor('Moved');
+    onClearSelection();
   };
 
   const duplicateToCategory = () => {
@@ -134,6 +143,30 @@ export function BulkEditPeopleModal({ open, selectedPeople, currentCategory, onC
                 Update to Now
               </GlassButton>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-white/50 bg-white/40 p-4">
+            <div className="mb-2 font-nav tracking-tight-ui text-gray-900">Move to Category</div>
+            {selectableCategories.length === 0 ? (
+              <div className="text-sm text-gray-700">No other categories available.</div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="min-w-[240px] flex-1 rounded-md border border-zinc-200/60 bg-white/60 px-3 py-2 text-sm"
+                  value={moveCategoryId}
+                  onChange={(e) => setMoveCategoryId(e.target.value)}
+                >
+                  {selectableCategories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <GlassButton type="button" onClick={moveToCategory}>
+                  Move
+                </GlassButton>
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-white/50 bg-white/40 p-4">

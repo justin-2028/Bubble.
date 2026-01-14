@@ -33,7 +33,7 @@ type Props = {
 };
 
 export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId }: Props) {
-  const { categories, labels, addLabel, addPerson, updatePerson, deletePerson, archivePerson, people } = useBubbleStore();
+  const { categories, labels, addLabel, addPerson, updatePerson, deletePerson, deleteDuplicateGroup, archivePerson, people } = useBubbleStore();
   const editing = useMemo<Person | undefined>(() => people.find((p) => p.id === personId), [people, personId]);
 
   const todayMax = useMemo(() => toDateInputValue(new Date()), []);
@@ -93,6 +93,11 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
   }, [labels, labelIds]);
   const creatingNewLabel = addExistingLabelId === '__create__';
   const canAddExisting = !!addExistingLabelId && addExistingLabelId !== '__create__';
+  const duplicateCount = useMemo(() => {
+    if (!editing) return 0;
+    const gid = editing.duplicateGroupId ?? editing.id;
+    return people.filter((p) => (p.duplicateGroupId ?? p.id) === gid).length;
+  }, [people, editing]);
 
   if (!open) return null;
 
@@ -136,6 +141,13 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
   const confirmDelete = () => {
     if (!editing) return;
     deletePerson(editing.id);
+    setConfirmDeleteOpen(false);
+    onClose();
+  };
+
+  const confirmDeleteAll = () => {
+    if (!editing) return;
+    deleteDuplicateGroup(editing.id);
     setConfirmDeleteOpen(false);
     onClose();
   };
@@ -346,11 +358,28 @@ export function AddEditPersonModal({ open, onClose, defaultCategoryId, personId 
 	      {confirmDeleteOpen && (
 	        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 px-4">
 	          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-label="Confirm delete">
-	            <div className="text-lg font-display tracking-tight-ui mb-2">Delete this person?</div>
-	            <p className="text-sm text-gray-600 mb-4">This action can’t be undone. Their bubble and history will be removed.</p>
+	            <div className="text-lg font-display tracking-tight-ui mb-2">
+                {duplicateCount > 1 ? 'Delete this bubble or all duplicates?' : 'Delete this person?'}
+              </div>
+	            <p className="text-sm text-gray-600 mb-4">
+                {duplicateCount > 1
+                  ? `This bubble has ${duplicateCount} identical copies across categories.`
+                  : 'This action can’t be undone. Their bubble and history will be removed.'}
+              </p>
 	            <div className="flex justify-end gap-2">
 	              <GlassButton type="button" onClick={() => setConfirmDeleteOpen(false)}>Cancel</GlassButton>
-	              <GlassButton type="button" intent="destructive" onClick={confirmDelete}>Delete</GlassButton>
+                {duplicateCount > 1 ? (
+                  <>
+                    <GlassButton type="button" intent="destructive" onClick={confirmDelete}>
+                      Delete This
+                    </GlassButton>
+                    <GlassButton type="button" intent="destructive" onClick={confirmDeleteAll}>
+                      Delete All
+                    </GlassButton>
+                  </>
+                ) : (
+                  <GlassButton type="button" intent="destructive" onClick={confirmDelete}>Delete</GlassButton>
+                )}
 	            </div>
 	          </div>
 	        </div>

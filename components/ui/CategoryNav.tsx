@@ -53,8 +53,11 @@ type Props = {
 };
 
 export function CategoryNav({ category, categories, onOpenCategorySettings, onOpenLeaderboard, onOpenArchive, onOpenSearch, keyboardNavEnabled = true }: Props) {
-  const { setCurrentCategory, addCategory } = useBubbleStore();
+  const { setCurrentCategory, addCategory, reorderCategories } = useBubbleStore();
   const [open, setOpen] = React.useState(false);
+  const [dragId, setDragId] = React.useState<string | null>(null);
+  const [dragOverId, setDragOverId] = React.useState<string | null>(null);
+  const ignoreNextClickRef = React.useRef(false);
   const ordered = useMemo(() => categories.slice().sort((a, b) => a.sortOrder - b.sortOrder), [categories]);
 
   const go = useCallback((dir: -1 | 1) => {
@@ -119,12 +122,45 @@ export function CategoryNav({ category, categories, onOpenCategorySettings, onOp
           </div>
         </button>
         {open && (
-          <div className="absolute left-0 z-30 mt-2 w-64 max-w-[80vw] rounded-xl border border-white/50 bg-white/70 p-1 shadow-xl backdrop-blur">
+          <div className="absolute left-0 z-[80] mt-2 w-64 max-w-[80vw] rounded-xl border border-white/50 bg-white/70 p-1 shadow-xl backdrop-blur">
             {ordered.map((c) => (
               <button
                 key={c.id}
-                className={`w-full rounded-lg px-3 py-2 text-left font-nav tracking-tight-ui ${c.id === category?.id ? 'bg-white/70' : 'hover:bg-white/60'}`}
+                draggable
+                onDragStart={(e) => {
+                  ignoreNextClickRef.current = true;
+                  setDragId(c.id);
+                  setDragOverId(c.id);
+                  e.dataTransfer.setData('text/plain', c.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragEnd={() => {
+                  setDragId(null);
+                  setDragOverId(null);
+                  window.setTimeout(() => {
+                    ignoreNextClickRef.current = false;
+                  }, 0);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (dragId) setDragOverId(c.id);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const fromId = dragId ?? e.dataTransfer.getData('text/plain');
+                  if (!fromId || fromId === c.id) return;
+                  const ids = ordered.map((x) => x.id);
+                  const from = ids.indexOf(fromId);
+                  const to = ids.indexOf(c.id);
+                  if (from < 0 || to < 0) return;
+                  const next = [...ids];
+                  next.splice(from, 1);
+                  next.splice(to, 0, fromId);
+                  reorderCategories(next);
+                }}
+                className={`w-full rounded-lg px-3 py-2 text-left font-nav tracking-tight-ui cursor-move ${c.id === category?.id ? 'bg-white/70' : 'hover:bg-white/60'} ${dragOverId === c.id && dragId && dragId !== c.id ? 'bg-white/80' : ''} ${dragId === c.id ? 'opacity-70' : ''}`}
                 onClick={() => {
+                  if (ignoreNextClickRef.current) return;
                   setCurrentCategory(c.id);
                   setOpen(false);
                 }}

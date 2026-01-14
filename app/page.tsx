@@ -73,6 +73,36 @@ export default function Page() {
     };
   }, [currentCategoryId, hydrated]);
 
+  // CapsLock toggles the Popping Bubbles leaderboard (home screen only).
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const isEditableTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
+    const syncToCapsState = (e: KeyboardEvent) => {
+      if (e.key !== 'CapsLock') return;
+      if (isEditableTarget(e.target)) return;
+      // Don't steal CapsLock while the user is in other modals.
+      if (showAdd || !!editPersonId || editCategoryOpen || searchOpen || archiveOpen) return;
+      e.preventDefault();
+      const capsOn = typeof e.getModifierState === 'function' ? e.getModifierState('CapsLock') : false;
+      setPoppingOpen(capsOn);
+    };
+
+    window.addEventListener('keydown', syncToCapsState, { passive: false });
+    window.addEventListener('keyup', syncToCapsState, { passive: false });
+    return () => {
+      window.removeEventListener('keydown', syncToCapsState);
+      window.removeEventListener('keyup', syncToCapsState);
+    };
+  }, [hydrated, showAdd, editPersonId, editCategoryOpen, searchOpen, archiveOpen]);
+
   const currentCategory = useMemo(() => categories
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder)

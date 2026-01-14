@@ -47,6 +47,7 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
   const [systemOpen, setSystemOpen] = useState(false);
   const [bindAction, setBindAction] = useState<BindAction | null>(null);
   const [bindStatus, setBindStatus] = useState<string>('');
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const [formHeightPx, setFormHeightPx] = useState<number>(0);
 
@@ -64,6 +65,7 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
     setSystemOpen(false);
     setBindAction(null);
     setBindStatus('');
+    setConfirmDeleteOpen(false);
   }, [open]);
 
   useLayoutEffect(() => {
@@ -164,10 +166,13 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
   };
 
   const onDelete = () => {
-    if (confirm('Delete this category? People in it will be removed.')) {
-      deleteCategory(category.id);
-      closeModal();
-    }
+    setConfirmDeleteOpen(true);
+  };
+
+  const confirmDelete = () => {
+    deleteCategory(category.id);
+    setConfirmDeleteOpen(false);
+    closeModal();
   };
 
   return (
@@ -369,6 +374,32 @@ export function EditCategoryModal({ open, onClose, categoryId }: Props) {
           </div>
         </div>
       </div>
+
+      {confirmDeleteOpen && (
+        <div
+          className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setConfirmDeleteOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm delete category"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-lg font-display tracking-tight-ui mb-2">Delete this category?</div>
+            <p className="text-sm text-gray-600 mb-4">This action can’t be undone. People in it will be removed.</p>
+            <div className="flex justify-end gap-2">
+              <GlassButton type="button" onClick={() => setConfirmDeleteOpen(false)}>
+                Cancel
+              </GlassButton>
+              <GlassButton type="button" intent="destructive" onClick={confirmDelete}>
+                Delete
+              </GlassButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

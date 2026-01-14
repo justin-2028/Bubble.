@@ -42,6 +42,7 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
   const restorePerson = useBubbleStore((s) => s.restorePerson);
   const reorderArchivedPeople = useBubbleStore((s) => s.reorderArchivedPeople);
   const deletePerson = useBubbleStore((s) => s.deletePerson);
+  const deleteDuplicateGroup = useBubbleStore((s) => s.deleteDuplicateGroup);
   const bulkRestorePeople = useBubbleStore((s) => s.bulkRestorePeople);
   const bulkDeletePeople = useBubbleStore((s) => s.bulkDeletePeople);
 
@@ -103,6 +104,11 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
   const ignoreNextClickRef = useRef(false);
 
   const activePerson = useMemo(() => (activeId ? people.find((p) => p.id === activeId) : undefined), [people, activeId]);
+  const activeDuplicateCount = useMemo(() => {
+    if (!activePerson) return 0;
+    const gid = activePerson.duplicateGroupId ?? activePerson.id;
+    return people.filter((p) => (p.duplicateGroupId ?? p.id) === gid).length;
+  }, [people, activePerson]);
 
   const restoreSelected = React.useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -204,6 +210,13 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
   const confirmDelete = () => {
     if (!activePerson) return;
     deletePerson(activePerson.id);
+    setConfirmDeleteOpen(false);
+    setActiveId(null);
+  };
+
+  const confirmDeleteAll = () => {
+    if (!activePerson) return;
+    deleteDuplicateGroup(activePerson.id);
     setConfirmDeleteOpen(false);
     setActiveId(null);
   };
@@ -521,20 +534,29 @@ export function ArchiveModal({ open, onClose, focusPersonId }: Props) {
             {confirmDeleteOpen && (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50/60 p-4">
                 <div className="font-nav tracking-tight-ui text-red-700">Delete?</div>
-                <div className="mt-1 text-sm text-red-700/90">This action can’t be undone.</div>
+                <div className="mt-1 text-sm text-red-700/90">
+                  {activeDuplicateCount > 1
+                    ? `This bubble has ${activeDuplicateCount} identical copies across categories.`
+                    : 'This action can’t be undone.'}
+                </div>
                 <div className="mt-3 flex justify-end gap-2">
                   <GlassButton type="button" onClick={() => setConfirmDeleteOpen(false)}>
                     Cancel
                   </GlassButton>
-                  <GlassButton
-                    type="button"
-                    intent="destructive"
-                    onClick={() => {
-                      confirmDelete();
-                    }}
-                  >
-                    Delete
-                  </GlassButton>
+                  {activeDuplicateCount > 1 ? (
+                    <>
+                      <GlassButton type="button" intent="destructive" onClick={confirmDelete}>
+                        Delete This
+                      </GlassButton>
+                      <GlassButton type="button" intent="destructive" onClick={confirmDeleteAll}>
+                        Delete All
+                      </GlassButton>
+                    </>
+                  ) : (
+                    <GlassButton type="button" intent="destructive" onClick={confirmDelete}>
+                      Delete
+                    </GlassButton>
+                  )}
                 </div>
               </div>
             )}
