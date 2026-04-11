@@ -2,6 +2,9 @@
   "name": "bubble",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:clean": "rm -rf .next-dev && next dev",

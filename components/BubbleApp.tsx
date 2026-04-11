@@ -21,6 +21,22 @@ import { HelperAccessModal } from './ui/HelperAccessModal';
 import { RemoteStateSnapshot, SyncStatus, mergeExportSchemas, stateSignature } from '@/lib/cloud';
 import { cloneExportSchema } from '@/lib/exportSchema';
 
+const SYNC_REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = SYNC_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 type Props = {
   username: string;
   initialSnapshot: RemoteStateSnapshot;
@@ -188,7 +204,7 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
     setSyncStatus('saving');
 
     try {
-      const response = await fetch('/api/state', {
+      const response = await fetchWithTimeout('/api/state', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -228,7 +244,8 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
       baseStateRef.current = cloneExportSchema(payload.state);
       baseVersionRef.current = payload.version;
       setSyncStatus('synced');
-    } catch {
+    } catch (error) {
+      console.error('Bubble cloud save failed.', error);
       setSyncStatus('error');
     } finally {
       saveInFlightRef.current = false;
@@ -243,7 +260,7 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
     if (saveInFlightRef.current) return;
 
     try {
-      const response = await fetch(`/api/state?version=${baseVersionRef.current}`, {
+      const response = await fetchWithTimeout(`/api/state?version=${baseVersionRef.current}`, {
         cache: 'no-store',
       });
 
@@ -283,7 +300,8 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
         queuedSaveRef.current = true;
         void pushRemoteState();
       });
-    } catch {
+    } catch (error) {
+      console.error('Bubble cloud refresh failed.', error);
       setSyncStatus((prev) => (prev === 'saving' ? prev : 'error'));
     }
   }, [exportData, importData, pushRemoteState]);
