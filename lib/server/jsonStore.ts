@@ -35,6 +35,14 @@ export async function writeJsonDocument<T>(key: string, value: T, etag?: string 
   return writeLocalJsonDocument(key, value, etag ?? null);
 }
 
+export async function overwriteJsonDocument<T>(key: string, value: T) {
+  if (isBlobConfigured()) {
+    return overwriteBlobJsonDocument(key, value);
+  }
+  assertLocalFallbackAllowed();
+  return writeLocalJsonDocument(key, value, null);
+}
+
 function localPathForKey(key: string) {
   return path.join(LOCAL_STORE_DIR, `${key}.json`);
 }
@@ -137,6 +145,21 @@ async function writeBlobJsonDocument<T>(key: string, value: T, etag: string | nu
 
     throw error;
   }
+}
+
+async function overwriteBlobJsonDocument<T>(key: string, value: T) {
+  const { put } = await import('@vercel/blob');
+  const serialized = JSON.stringify(value, null, 2);
+  const encrypted = encryptContent(serialized);
+  const result = await put(blobPathForKey(key), encrypted, {
+    access: 'private',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    cacheControlMaxAge: 60,
+    contentType: 'text/plain; charset=utf-8',
+  });
+
+  return result.etag;
 }
 
 function hashContent(content: string) {

@@ -57,6 +57,7 @@ export async function PUT(request: NextRequest) {
   if (!result.ok) {
     return NextResponse.json(
       {
+        reason: result.reason,
         version: result.current.version,
         updatedAt: result.current.updatedAt,
         state: result.current.data,

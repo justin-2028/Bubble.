@@ -3,7 +3,7 @@ import 'server-only';
 import { createDefaultExportData } from '../defaultData';
 import { cloneExportSchema, normalizeExportSchema } from '../exportSchema';
 import { ExportSchema } from '../types';
-import { StorageConflictError, readJsonDocument, writeJsonDocument } from './jsonStore';
+import { StorageConflictError, overwriteJsonDocument, readJsonDocument, writeJsonDocument } from './jsonStore';
 
 const APP_STATE_KEY = 'state';
 
@@ -40,6 +40,7 @@ export async function replaceAppState(nextState: ExportSchema, baseVersion: numb
   if (doc.version !== baseVersion) {
     return {
       ok: false as const,
+      reason: 'version_mismatch' as const,
       current: doc,
     };
   }
@@ -61,8 +62,18 @@ export async function replaceAppState(nextState: ExportSchema, baseVersion: numb
   } catch (error) {
     if (error instanceof StorageConflictError) {
       const current = await getAppStateDocument();
+      if (current.doc.version === doc.version) {
+        await overwriteJsonDocument(APP_STATE_KEY, nextDoc);
+        return {
+          ok: true as const,
+          doc: nextDoc,
+          etag: null,
+        };
+      }
+
       return {
         ok: false as const,
+        reason: 'version_mismatch' as const,
         current: current.doc,
       };
     }
@@ -93,6 +104,12 @@ export async function mutateAppState(mutator: (current: ExportSchema) => ExportS
     } catch (error) {
       if (!(error instanceof StorageConflictError)) {
         throw error;
+      }
+
+      const current = await getAppStateDocument();
+      if (current.doc.version === doc.version) {
+        await overwriteJsonDocument(APP_STATE_KEY, nextDoc);
+        return nextDoc;
       }
     }
   }
