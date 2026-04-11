@@ -9,24 +9,29 @@ export const metadata = {
 import './globals.css';
 import { Providers } from '../components/Providers';
 import React from 'react';
-import { Analytics } from "@vercel/analytics/next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import { DesktopOnlyGate } from '../components/ui/DesktopOnlyGate';
+import { DM_Sans, Fragment_Mono } from 'next/font/google';
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '700'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+});
+
+const fragmentMono = Fragment_Mono({
+  subsets: ['latin'],
+  weight: '400',
+  variable: '--font-fragment-mono',
+  display: 'swap',
+});
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=Fragment+Mono&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="font-body">
+      <body className={`${dmSans.variable} ${fragmentMono.variable} font-body`}>
         <Providers>
           {children}
-          <Analytics />
           <DesktopOnlyGate minWidthPx={1024} />
         </Providers>
       </body>

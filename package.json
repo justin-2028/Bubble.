@@ -9,6 +9,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "auth:hash": "node scripts/generate-password-hash.mjs",
+    "helper:build": "swift build --package-path mac-helper --cache-path mac-helper/.swiftpm/cache --config-path mac-helper/.swiftpm/config --security-path mac-helper/.swiftpm/security --manifest-cache local --scratch-path mac-helper/.build -Xswiftc -module-cache-path -Xswiftc mac-helper/.build/module-cache -Xcc -fmodules-cache-path=mac-helper/.build/clang-module-cache",
+    "helper:run": "swift run --package-path mac-helper --cache-path mac-helper/.swiftpm/cache --config-path mac-helper/.swiftpm/config --security-path mac-helper/.swiftpm/security --manifest-cache local --scratch-path mac-helper/.build -Xswiftc -module-cache-path -Xswiftc mac-helper/.build/module-cache -Xcc -fmodules-cache-path=mac-helper/.build/clang-module-cache",
     "db:generate": "echo 'prisma disabled'",
     "db:migrate": "echo 'prisma disabled'",
     "db:deploy": "echo 'prisma disabled'"
@@ -16,6 +19,7 @@
   "dependencies": {
     "@react-three/drei": "^9.103.0",
     "@react-three/fiber": "^8.15.13",
+    "@vercel/blob": "^1.0.0",
     "@vercel/analytics": "^1.6.1",
     "@vercel/speed-insights": "^1.3.1",
     "framer-motion": "^11.0.0",

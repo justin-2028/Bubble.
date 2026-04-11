@@ -114,7 +114,7 @@ export function PoppingBubblesModal({ open, onClose, categories, currentCategory
         <div className="mb-1 flex items-start justify-between gap-4">
           <div>
             <div className="text-2xl font-display tracking-tight-ui">Popping Bubbles</div>
-            <div className="mt-1 text-sm text-gray-700">Don't let them pop!</div>
+            <div className="mt-1 text-sm text-gray-700">Don&apos;t let them pop!</div>
           </div>
           <div className="flex items-center gap-2">
             <div className="glass flex rounded-xl p-1">

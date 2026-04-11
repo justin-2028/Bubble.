@@ -9,10 +9,10 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        display: ['Switzer', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
-        nav: ['DM Sans', 'sans-serif'],
-        body: ['DM Sans', 'sans-serif'],
-        code: ['Fragment Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace']
+        display: ['var(--font-dm-sans)', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        nav: ['var(--font-dm-sans)', 'sans-serif'],
+        body: ['var(--font-dm-sans)', 'sans-serif'],
+        code: ['var(--font-fragment-mono)', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace']
       },
       letterSpacing: {
         'tight-display': '-0.05em',
@@ -33,4 +33,3 @@ const config: Config = {
 };
 
 export default config;
-

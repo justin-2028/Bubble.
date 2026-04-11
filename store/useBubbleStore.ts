@@ -2,8 +2,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Category, ExportSchema, Label, Person, SystemControls } from '../lib/types';
-import { uid, formatDateISO } from '../lib/utils';
+import { uid } from '../lib/utils';
 import { svgAvatarDataUrl } from '../lib/avatar';
+import { createDefaultExportData, defaultSystemControls } from '../lib/defaultData';
+import { normalizeExportSchema } from '../lib/exportSchema';
 
 type State = {
   categories: Category[];
@@ -70,77 +72,17 @@ function isMoreRecentIso(prevIso: string, nextIso: string) {
   return next > prev;
 }
 
-const exampleCategories: Category[] = [
-  {
-    id: uid('cat_'),
-    name: 'Family',
-    timeLimitValue: 14,
-    timeLimitUnit: 'days',
-    sortOrder: 0,
-    gradientColors: ['#ffffff', '#f8f8f8', '#f0f0f0']
-  },
-  {
-    id: uid('cat_'),
-    name: 'Mentors',
-    timeLimitValue: 1,
-    timeLimitUnit: 'months',
-    sortOrder: 1,
-    gradientColors: ['#ffffff', '#f6f6f6', '#ececec']
-  },
-  {
-    id: uid('cat_'),
-    name: 'Friends',
-    timeLimitValue: 21,
-    timeLimitUnit: 'days',
-    sortOrder: 2,
-    gradientColors: ['#ffffff', '#f7f7f7', '#ededed']
-  }
-];
-
-const todayISO = formatDateISO(new Date());
-
-const defaultSystemControls: SystemControls = {
-  multiSelectHotkeysEnabled: false,
-  multiSelectUpdateToNowKey: null,
-  multiSelectArchiveKey: null,
-  multiSelectDeleteKey: null,
-};
-
-function samplePeople(cats: Category[]): Person[] {
-  const [c1, c2, c3] = cats;
-  const mk = (fullName: string, categoryId: string, daysAgo: number, yPosition: number): Person => ({
-    id: uid('p_'),
-    fullName,
-    categoryId,
-    context: '',
-    lastInteraction: new Date(Date.now() - daysAgo * 86400000).toISOString(),
-    interactionCount: 0,
-    yPosition,
-    image: svgAvatarDataUrl(fullName),
-    labelIds: [],
-    starred: false,
-  });
-  return [
-    mk('Alice Bubble', c1.id, 3, 20),
-    mk('Bob Bubble', c1.id, 11, 45),
-    mk('Dr. Patel', c2.id, 20, 30),
-    mk('Prof. Nguyen', c2.id, 45, 60),
-    mk('Ethan Wright', c3.id, 2, 25),
-    mk('Maya Chen', c3.id, 7, 50),
-    mk('Ravi Kumar', c3.id, 25, 65),
-    mk('Sara Kim', c3.id, 12, 80),
-    mk('Tom Bubble', c1.id, 28, 55)
-  ];
-}
+const defaultExportData = createDefaultExportData();
+const exampleCategories: Category[] = defaultExportData.categories;
 
 export const useBubbleStore = create<State & Actions>()(
   persist(
     (set, get) => ({
       categories: exampleCategories,
-      people: samplePeople(exampleCategories),
-      labels: [],
+      people: defaultExportData.people,
+      labels: defaultExportData.labels ?? [],
       currentCategoryId: exampleCategories[0].id,
-      systemControls: defaultSystemControls,
+      systemControls: { ...defaultSystemControls },
       historyPast: [],
       historyFuture: [],
 
@@ -642,30 +584,14 @@ export const useBubbleStore = create<State & Actions>()(
 
       importData: (data) =>
         set((s) => {
-          const categories = (data.categories ?? []).map((c) => ({
-            ...c,
-            description: (c as any).description ?? '',
-          }));
-          const people = (data.people ?? []).map((p) => ({
-            ...p,
-            labelIds: (p as any).labelIds ?? [],
-            starred: (p as any).starred ?? false,
-            duplicateGroupId: (p as any).duplicateGroupId,
-            archivedAt: typeof (p as any).archivedAt === 'string' ? (p as any).archivedAt : undefined,
-            archivedFromCategoryId: typeof (p as any).archivedFromCategoryId === 'string' ? (p as any).archivedFromCategoryId : undefined,
-            archivedOrder: typeof (p as any).archivedOrder === 'number' ? (p as any).archivedOrder : undefined,
-          }));
-          const labels = (data as any).labels ?? [];
-          const sc = (data as any).systemControls;
-          const systemControls: SystemControls =
-            sc && typeof sc === 'object'
-              ? {
-                  multiSelectHotkeysEnabled: typeof sc.multiSelectHotkeysEnabled === 'boolean' ? sc.multiSelectHotkeysEnabled : s.systemControls.multiSelectHotkeysEnabled,
-                  multiSelectUpdateToNowKey: typeof sc.multiSelectUpdateToNowKey === 'string' ? sc.multiSelectUpdateToNowKey : null,
-                  multiSelectArchiveKey: typeof sc.multiSelectArchiveKey === 'string' ? sc.multiSelectArchiveKey : null,
-                  multiSelectDeleteKey: typeof sc.multiSelectDeleteKey === 'string' ? sc.multiSelectDeleteKey : null,
-                }
-              : s.systemControls;
+          const normalized = normalizeExportSchema(data, {
+            categories: s.categories,
+            people: s.people,
+            labels: s.labels,
+            systemControls: s.systemControls,
+            version: 2,
+          });
+          const { categories, people, labels, systemControls } = normalized;
           // Preserve currentCategoryId if it still exists after import; otherwise fallback to first
           const keepId = s.currentCategoryId && categories.some((c) => c.id === s.currentCategoryId)
             ? s.currentCategoryId
@@ -687,33 +613,19 @@ export const useBubbleStore = create<State & Actions>()(
         }),
 	      migrate: (persisted: any) => {
 	        if (!persisted || typeof persisted !== 'object') return persisted as any;
-        const categories = Array.isArray(persisted.categories) ? persisted.categories : [];
-        const people = Array.isArray(persisted.people) ? persisted.people : [];
-        const labels = Array.isArray(persisted.labels) ? persisted.labels : [];
-        const sc = persisted.systemControls;
-        const systemControls: SystemControls =
-          sc && typeof sc === 'object'
-            ? {
-                multiSelectHotkeysEnabled: typeof sc.multiSelectHotkeysEnabled === 'boolean' ? sc.multiSelectHotkeysEnabled : defaultSystemControls.multiSelectHotkeysEnabled,
-                multiSelectUpdateToNowKey: typeof sc.multiSelectUpdateToNowKey === 'string' ? sc.multiSelectUpdateToNowKey : null,
-                multiSelectArchiveKey: typeof sc.multiSelectArchiveKey === 'string' ? sc.multiSelectArchiveKey : null,
-                multiSelectDeleteKey: typeof sc.multiSelectDeleteKey === 'string' ? sc.multiSelectDeleteKey : null,
-              }
-            : defaultSystemControls;
+        const normalized = normalizeExportSchema(persisted, {
+          categories: defaultExportData.categories,
+          people: defaultExportData.people,
+          labels: defaultExportData.labels,
+          systemControls: defaultSystemControls,
+          version: 2,
+        });
         return {
           ...persisted,
-          categories: categories.map((c: any) => ({ ...c, description: c.description ?? '' })),
-          people: people.map((p: any) => ({
-            ...p,
-            labelIds: Array.isArray(p.labelIds) ? p.labelIds : [],
-            starred: typeof p.starred === 'boolean' ? p.starred : false,
-            duplicateGroupId: p.duplicateGroupId,
-            archivedAt: typeof p.archivedAt === 'string' ? p.archivedAt : undefined,
-            archivedFromCategoryId: typeof p.archivedFromCategoryId === 'string' ? p.archivedFromCategoryId : undefined,
-            archivedOrder: typeof p.archivedOrder === 'number' ? p.archivedOrder : undefined,
-          })),
-          labels,
-          systemControls,
+          categories: normalized.categories,
+          people: normalized.people,
+          labels: normalized.labels,
+          systemControls: normalized.systemControls,
         } as any;
       },
     }
