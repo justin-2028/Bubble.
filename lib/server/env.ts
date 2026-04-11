@@ -33,3 +33,7 @@ export function isSessionConfigured() {
 export function isBlobConfigured() {
   return !!(process.env.BLOB_READ_WRITE_TOKEN || '').trim();
 }
+
+export function requiresDurableHostedStorage() {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+}

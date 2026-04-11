@@ -3,8 +3,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { BlobNotFoundError } from '@vercel/blob';
-import { getStorageSecret, isBlobConfigured } from './env';
+import { getStorageSecret, isBlobConfigured, requiresDurableHostedStorage } from './env';
 
 const LOCAL_STORE_DIR = path.join(process.cwd(), '.bubble-data');
 
@@ -24,6 +23,7 @@ export async function readJsonDocument<T>(key: string): Promise<JsonReadResult<T
   if (isBlobConfigured()) {
     return readBlobJsonDocument<T>(key);
   }
+  assertLocalFallbackAllowed();
   return readLocalJsonDocument<T>(key);
 }
 
@@ -31,6 +31,7 @@ export async function writeJsonDocument<T>(key: string, value: T, etag?: string 
   if (isBlobConfigured()) {
     return writeBlobJsonDocument(key, value, etag ?? null);
   }
+  assertLocalFallbackAllowed();
   return writeLocalJsonDocument(key, value, etag ?? null);
 }
 
@@ -84,52 +85,72 @@ async function writeLocalJsonDocument<T>(key: string, value: T, etag: string | n
 }
 
 async function readBlobJsonDocument<T>(key: string): Promise<JsonReadResult<T>> {
-  const { head } = await import('@vercel/blob');
+  const { get } = await import('@vercel/blob');
+  const result = await get(blobPathForKey(key), {
+    access: 'private',
+    useCache: false,
+  });
+
+  if (!result) {
+    return { value: null, etag: null };
+  }
+
+  if (result.statusCode !== 200 || !result.stream) {
+    return { value: null, etag: result.blob.etag };
+  }
+
+  const encryptedText = await new Response(result.stream).text();
+  const text = decryptContent(encryptedText);
+  return {
+    value: text ? (JSON.parse(text) as T) : null,
+    etag: result.blob.etag,
+  };
+}
+
+async function writeBlobJsonDocument<T>(key: string, value: T, etag: string | null) {
+  const { BlobPreconditionFailedError, put } = await import('@vercel/blob');
+  const serialized = JSON.stringify(value, null, 2);
+  const encrypted = encryptContent(serialized);
+
   try {
-    const metadata = await head(blobPathForKey(key));
-    const response = await fetch(metadata.url, { cache: 'no-store' });
-    if (!response.ok) {
-      throw new Error(`Could not download blob document ${key}`);
-    }
-    const encryptedText = await response.text();
-    const text = decryptContent(encryptedText);
-    return {
-      value: text ? (JSON.parse(text) as T) : null,
-      etag: hashContent(text),
-    };
+    const result = await put(blobPathForKey(key), encrypted, {
+      access: 'private',
+      addRandomSuffix: false,
+      allowOverwrite: etag !== null,
+      ifMatch: etag ?? undefined,
+      cacheControlMaxAge: 60,
+      contentType: 'text/plain; charset=utf-8',
+    });
+
+    return result.etag;
   } catch (error) {
-    if (error instanceof BlobNotFoundError) {
-      return { value: null, etag: null };
+    if (error instanceof BlobPreconditionFailedError) {
+      throw new StorageConflictError(key);
     }
+
+    if (etag === null) {
+      const current = await readBlobJsonDocument<T>(key).catch(() => null);
+      if (current?.etag) {
+        throw new StorageConflictError(key);
+      }
+    }
+
     throw error;
   }
 }
 
-async function writeBlobJsonDocument<T>(key: string, value: T, etag: string | null) {
-  const { put } = await import('@vercel/blob');
-  const serialized = JSON.stringify(value, null, 2);
-  const nextEtag = hashContent(serialized);
-
-  if (etag) {
-    const current = await readBlobJsonDocument<T>(key);
-    if (current.etag !== etag) {
-      throw new StorageConflictError(key);
-    }
-  }
-
-  await put(blobPathForKey(key), encryptContent(serialized), {
-    access: 'public',
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    cacheControlMaxAge: 60,
-    contentType: 'text/plain; charset=utf-8',
-  });
-
-  return nextEtag;
-}
-
 function hashContent(content: string) {
   return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+function assertLocalFallbackAllowed() {
+  if (!requiresDurableHostedStorage()) {
+    return;
+  }
+
+  throw new Error(
+    'BLOB_READ_WRITE_TOKEN must be configured for hosted Bubble storage in production. Local JSON fallback is development-only.'
+  );
 }
 
 function encryptContent(plaintext: string) {

@@ -28,8 +28,8 @@ const nextConfig = {
       "img-src 'self' data: blob:",
       // Next.js requires inline scripts for hydration/runtime.
       "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
+      "style-src 'self' 'unsafe-inline'",
+      "font-src 'self'",
       "connect-src 'self'",
       "worker-src 'self' blob:",
     ].join('; ');

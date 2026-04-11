@@ -22,7 +22,7 @@ Bubble now supports a private hosted mode instead of relying on `localhost:3000`
 - Helper API tokens for a future local Mac companion
 - Self-hosted fonts via `next/font`
 
-Set up the env vars from `.env.example` before using hosted auth. For Vercel deployments, add `BLOB_READ_WRITE_TOKEN` to persist Bubble state remotely; otherwise the app falls back to a local JSON file in `.bubble-data/` for development.
+Set up the env vars from `.env.example` before using hosted auth. For Vercel deployments, create a private Vercel Blob store and add `BLOB_READ_WRITE_TOKEN` to persist Bubble state remotely. Set `BUBBLE_STORAGE_SECRET` as a separate encryption secret for hosted state at rest. The local `.bubble-data/` JSON fallback is now development-only; production hosted mode expects Blob to be configured.
 
 Generate a password hash with:
 
