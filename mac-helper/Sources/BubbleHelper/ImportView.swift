@@ -162,6 +162,15 @@ struct ImportView: View {
                   VStack(alignment: .leading, spacing: 2) {
                     Text(bubble.fullName)
                       .font(.body.weight(.medium))
+                    if let duplicateCount = bubble.duplicateCount, duplicateCount > 1 {
+                      Text(duplicateSummary(for: bubble))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    } else if let categoryName = bubble.categoryNames?.first, !categoryName.isEmpty {
+                      Text(categoryName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                     Text("Last interaction \(relativeDateDescription(dateFromISO8601String(bubble.lastInteraction)))")
                       .font(.caption)
                       .foregroundStyle(.secondary)
@@ -261,6 +270,15 @@ struct ImportView: View {
     .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+  }
+
+  private func duplicateSummary(for bubble: HelperBubbleSummary) -> String {
+    let duplicateCount = bubble.duplicateCount ?? 1
+    let categoryNames = (bubble.categoryNames ?? []).filter { !$0.isEmpty }
+    if categoryNames.isEmpty {
+      return "\(duplicateCount) copies across multiple categories"
+    }
+    return "\(duplicateCount) copies across \(categoryNames.joined(separator: ", "))"
   }
 }
 

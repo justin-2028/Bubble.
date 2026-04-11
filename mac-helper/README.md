@@ -7,7 +7,7 @@ It is responsible for:
 - Reading your local Messages database on your Mac
 - Resolving iMessage handles against Contacts when allowed
 - Keeping the private identity map on-device only
-- Sending only minimal Bubble-safe updates back to `bubble.garden`
+- Sending only minimal Bubble-safe updates back to `www.bubble.garden`
 
 It does **not** upload:
 
@@ -82,7 +82,7 @@ When running the installed app bundle, grant these permissions to `Bubble Helper
 1. Open Bubble on the web and generate a `Helper Access` token.
 2. Install and launch `Bubble Helper.app`.
 3. Open `Settings`.
-4. Paste your Bubble URL and helper token.
+4. Paste your Bubble URL and helper token. Use the canonical host, for example `https://www.bubble.garden`.
 5. Grant Full Disk Access.
 6. Use `Import from iMessage` to search for a person, then either:
    - create a new Bubble, or

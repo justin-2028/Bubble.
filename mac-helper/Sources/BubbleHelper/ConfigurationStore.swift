@@ -9,7 +9,12 @@ final class ConfigurationStore {
     }
 
     do {
-      return try JSONDecoder().decode(HelperConfiguration.self, from: data)
+      let configuration = try JSONDecoder().decode(HelperConfiguration.self, from: data)
+      return HelperConfiguration(
+        baseURL: normalizeBubbleBaseURL(configuration.baseURL),
+        monitoringEnabled: configuration.monitoringEnabled,
+        pollIntervalSeconds: configuration.pollIntervalSeconds
+      )
     } catch {
       return .default
     }

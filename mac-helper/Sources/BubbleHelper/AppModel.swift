@@ -68,7 +68,9 @@ final class AppModel: ObservableObject {
     let query = bubbleSearch.trimmingCharacters(in: .whitespacesAndNewlines)
     return bubbles
       .filter { bubble in
-        query.isEmpty || containsQuery(bubble.fullName, query: query)
+        query.isEmpty
+          || containsQuery(bubble.fullName, query: query)
+          || (bubble.categoryNames ?? []).contains(where: { containsQuery($0, query: query) })
       }
       .sorted { lhs, rhs in
         if lhs.starred != rhs.starred {
@@ -141,7 +143,7 @@ final class AppModel: ObservableObject {
     pollIntervalSeconds: Double
   ) async {
     let nextConfiguration = HelperConfiguration(
-      baseURL: baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+      baseURL: normalizeBubbleBaseURL(baseURL),
       monitoringEnabled: monitoringEnabled,
       pollIntervalSeconds: max(10, pollIntervalSeconds)
     )
@@ -613,7 +615,7 @@ final class AppModel: ObservableObject {
   }
 
   private func configuredBaseURL() -> String? {
-    let trimmed = configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmed = normalizeBubbleBaseURL(configuration.baseURL)
     return trimmed.isEmpty ? nil : trimmed
   }
 

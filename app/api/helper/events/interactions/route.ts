@@ -25,20 +25,31 @@ export async function POST(request: NextRequest) {
   const bubbleIdSet = new Set(bubbleIds);
   let updatedCount = 0;
 
-  const doc = await mutateAppState((current) => ({
-    ...current,
-    people: current.people.map((person) => {
-      if (!bubbleIdSet.has(person.id)) return person;
-      if (sameCalendarDayInTimeZone(person.lastInteraction, occurredAt, timeZone)) return person;
-      if (!isMoreRecentIso(person.lastInteraction, occurredAt)) return person;
-      updatedCount += 1;
-      return {
-        ...person,
-        lastInteraction: occurredAt,
-        interactionCount: (typeof person.interactionCount === 'number' ? person.interactionCount : 0) + 1,
-      };
-    }),
-  }));
+  const doc = await mutateAppState((current) => {
+    const targetGroupIds = new Set<string>();
+    for (const person of current.people) {
+      const groupId = person.duplicateGroupId ?? person.id;
+      if (bubbleIdSet.has(person.id) || bubbleIdSet.has(groupId)) {
+        targetGroupIds.add(groupId);
+      }
+    }
+
+    return {
+      ...current,
+      people: current.people.map((person) => {
+        const groupId = person.duplicateGroupId ?? person.id;
+        if (!targetGroupIds.has(groupId)) return person;
+        if (sameCalendarDayInTimeZone(person.lastInteraction, occurredAt, timeZone)) return person;
+        if (!isMoreRecentIso(person.lastInteraction, occurredAt)) return person;
+        updatedCount += 1;
+        return {
+          ...person,
+          lastInteraction: occurredAt,
+          interactionCount: (typeof person.interactionCount === 'number' ? person.interactionCount : 0) + 1,
+        };
+      }),
+    };
+  });
 
   return NextResponse.json({
     ok: true,

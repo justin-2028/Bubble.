@@ -11,7 +11,7 @@ struct SettingsView: View {
   var body: some View {
     Form {
       Section("Bubble Connection") {
-        TextField("Bubble URL", text: $baseURL, prompt: Text("https://bubble.garden"))
+        TextField("Bubble URL", text: $baseURL, prompt: Text("https://www.bubble.garden"))
 
         SecureField(
           model.hasStoredHelperToken

@@ -89,7 +89,7 @@ actor BubbleAPIClient {
     method: String,
     body: Data?
   ) async throws -> Response {
-    guard let url = resolvedBaseURL(from: baseURL)?.appending(path: path) else {
+    guard let url = resolveBubbleBaseURL(from: baseURL)?.appending(path: path) else {
       throw BubbleAPIClientError.invalidBaseURL
     }
 
@@ -113,15 +113,6 @@ actor BubbleAPIClient {
 
     let decoder = JSONDecoder()
     return try decoder.decode(Response.self, from: data)
-  }
-
-  private func resolvedBaseURL(from rawValue: String) -> URL? {
-    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    if trimmed.contains("://") {
-      return URL(string: trimmed)
-    }
-    return URL(string: "https://\(trimmed)")
   }
 
   private func serverMessage(from data: Data) -> String? {

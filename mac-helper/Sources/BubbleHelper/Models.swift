@@ -1,5 +1,36 @@
 import Foundation
 
+func resolveBubbleBaseURL(from rawValue: String) -> URL? {
+  let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard !trimmed.isEmpty else { return nil }
+
+  let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+  guard var components = URLComponents(string: candidate) else {
+    return nil
+  }
+
+  if components.scheme == nil {
+    components.scheme = "https"
+  }
+
+  if let host = components.host?.lowercased(), host == "bubble.garden" {
+    components.host = "www.bubble.garden"
+  }
+
+  components.query = nil
+  components.fragment = nil
+  if components.path == "/" {
+    components.path = ""
+  }
+
+  return components.url
+}
+
+func normalizeBubbleBaseURL(_ rawValue: String) -> String {
+  resolveBubbleBaseURL(from: rawValue)?.absoluteString
+    ?? rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 struct HelperConfiguration: Codable, Equatable {
   var baseURL: String
   var monitoringEnabled: Bool
@@ -13,13 +44,15 @@ struct HelperConfiguration: Codable, Equatable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? HelperConfiguration.default.baseURL
+    baseURL = normalizeBubbleBaseURL(
+      try container.decodeIfPresent(String.self, forKey: .baseURL) ?? HelperConfiguration.default.baseURL
+    )
     monitoringEnabled = try container.decodeIfPresent(Bool.self, forKey: .monitoringEnabled) ?? HelperConfiguration.default.monitoringEnabled
     pollIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .pollIntervalSeconds) ?? HelperConfiguration.default.pollIntervalSeconds
   }
 
   static let `default` = HelperConfiguration(
-    baseURL: "https://bubble.garden",
+    baseURL: "https://www.bubble.garden",
     monitoringEnabled: true,
     pollIntervalSeconds: 15
   )
@@ -67,6 +100,8 @@ struct HelperBubbleSummary: Codable, Hashable, Identifiable {
   let lastInteraction: String
   let image: String?
   let starred: Bool
+  let duplicateCount: Int?
+  let categoryNames: [String]?
 }
 
 struct HelperBootstrapResponse: Codable {

@@ -17,19 +17,70 @@ export async function GET(request: NextRequest) {
       name: category.name,
       sortOrder: category.sortOrder,
     }));
+  const categoryOrderById = new Map(orderedCategories.map((category) => [category.id, category.sortOrder]));
+  const categoryNameById = new Map(orderedCategories.map((category) => [category.id, category.name]));
 
-  const activeBubbles = current.doc.data.people
-    .filter((person) => !person.archivedAt)
-    .slice()
-    .sort((a, b) => a.fullName.localeCompare(b.fullName))
-    .map((person) => ({
-      id: person.id,
-      fullName: person.fullName,
-      categoryId: person.categoryId,
-      lastInteraction: person.lastInteraction,
-      image: person.image,
-      starred: !!person.starred,
-    }));
+  const groupedPeople = new Map<string, typeof current.doc.data.people>();
+  for (const person of current.doc.data.people.filter((entry) => !entry.archivedAt)) {
+    const groupId = person.duplicateGroupId ?? person.id;
+    const existing = groupedPeople.get(groupId);
+    if (existing) {
+      existing.push(person);
+    } else {
+      groupedPeople.set(groupId, [person]);
+    }
+  }
+
+  const activeBubbles = Array.from(groupedPeople.entries())
+    .map(([groupId, people]) => {
+      const representative = people
+        .slice()
+        .sort((lhs, rhs) => {
+          const lhsIsCanonical = (lhs.duplicateGroupId ?? lhs.id) === lhs.id;
+          const rhsIsCanonical = (rhs.duplicateGroupId ?? rhs.id) === rhs.id;
+          if (lhsIsCanonical !== rhsIsCanonical) {
+            return lhsIsCanonical ? -1 : 1;
+          }
+          const lhsCategoryOrder = categoryOrderById.get(lhs.categoryId) ?? Number.MAX_SAFE_INTEGER;
+          const rhsCategoryOrder = categoryOrderById.get(rhs.categoryId) ?? Number.MAX_SAFE_INTEGER;
+          if (lhsCategoryOrder !== rhsCategoryOrder) {
+            return lhsCategoryOrder - rhsCategoryOrder;
+          }
+          return lhs.fullName.localeCompare(rhs.fullName);
+        })[0];
+
+      let latestInteraction = representative.lastInteraction;
+      for (const person of people) {
+        if (Date.parse(person.lastInteraction) > Date.parse(latestInteraction)) {
+          latestInteraction = person.lastInteraction;
+        }
+      }
+
+      const categoryNames = Array.from(
+        new Set(
+          people
+            .slice()
+            .sort(
+              (lhs, rhs) =>
+                (categoryOrderById.get(lhs.categoryId) ?? Number.MAX_SAFE_INTEGER) -
+                (categoryOrderById.get(rhs.categoryId) ?? Number.MAX_SAFE_INTEGER)
+            )
+            .map((person) => categoryNameById.get(person.categoryId) ?? person.categoryId)
+        )
+      );
+
+      return {
+        id: groupId,
+        fullName: representative.fullName,
+        categoryId: representative.categoryId,
+        lastInteraction: latestInteraction,
+        image: people.find((person) => typeof person.image === 'string' && person.image.length > 0)?.image ?? representative.image,
+        starred: people.some((person) => !!person.starred),
+        duplicateCount: people.length,
+        categoryNames,
+      };
+    })
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
 
   return NextResponse.json(
     {
