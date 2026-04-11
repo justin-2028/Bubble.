@@ -5,6 +5,19 @@ struct HelperConfiguration: Codable, Equatable {
   var monitoringEnabled: Bool
   var pollIntervalSeconds: Double
 
+  init(baseURL: String, monitoringEnabled: Bool, pollIntervalSeconds: Double) {
+    self.baseURL = baseURL
+    self.monitoringEnabled = monitoringEnabled
+    self.pollIntervalSeconds = pollIntervalSeconds
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? HelperConfiguration.default.baseURL
+    monitoringEnabled = try container.decodeIfPresent(Bool.self, forKey: .monitoringEnabled) ?? HelperConfiguration.default.monitoringEnabled
+    pollIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .pollIntervalSeconds) ?? HelperConfiguration.default.pollIntervalSeconds
+  }
+
   static let `default` = HelperConfiguration(
     baseURL: "https://bubble.garden",
     monitoringEnabled: true,

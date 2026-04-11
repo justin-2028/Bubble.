@@ -48,7 +48,23 @@ swift build \
 npm run helper:run
 ```
 
-The helper launches as a menu bar app. It is intended to stay running while you are logged into macOS if you want near-real-time iMessage updates.
+The helper launches as a menu bar app. This source-run mode is mainly for development and still depends on the Terminal process that launched it staying alive.
+
+## Package
+
+```bash
+npm run helper:package
+```
+
+This creates a standalone app bundle at `mac-helper/dist/Bubble Helper.app`.
+
+## Install
+
+```bash
+npm run helper:install
+```
+
+This packages the helper, installs it to `~/Applications/Bubble Helper.app`, quits any already-running helper process, and opens the installed app. Once launched this way, Bubble Helper no longer depends on Terminal or VS Code staying open.
 
 ## Permissions
 
@@ -59,16 +75,19 @@ The helper expects:
 
 Contacts access is optional. Full Disk Access is required for iMessage monitoring.
 
+When running the installed app bundle, grant these permissions to `Bubble Helper.app` in macOS System Settings. When running from source with `npm run helper:run`, macOS may instead attribute those permissions to Terminal.
+
 ## First Run
 
 1. Open Bubble on the web and generate a `Helper Access` token.
-2. Launch Bubble Helper.
+2. Install and launch `Bubble Helper.app`.
 3. Open `Settings`.
 4. Paste your Bubble URL and helper token.
 5. Grant Full Disk Access.
 6. Use `Import from iMessage` to search for a person, then either:
    - create a new Bubble, or
    - link them to an existing Bubble
+7. Optionally enable `Start Bubble Helper at login` in Settings after you are running the installed app.
 
 ## Local Data
 

@@ -15,6 +15,8 @@
     "auth:hash": "node scripts/generate-password-hash.mjs",
     "helper:build": "swift build --package-path mac-helper --cache-path mac-helper/.swiftpm/cache --config-path mac-helper/.swiftpm/config --security-path mac-helper/.swiftpm/security --manifest-cache local --scratch-path mac-helper/.build -Xswiftc -module-cache-path -Xswiftc mac-helper/.build/module-cache -Xcc -fmodules-cache-path=mac-helper/.build/clang-module-cache",
     "helper:run": "swift run --package-path mac-helper --cache-path mac-helper/.swiftpm/cache --config-path mac-helper/.swiftpm/config --security-path mac-helper/.swiftpm/security --manifest-cache local --scratch-path mac-helper/.build -Xswiftc -module-cache-path -Xswiftc mac-helper/.build/module-cache -Xcc -fmodules-cache-path=mac-helper/.build/clang-module-cache",
+    "helper:package": "zsh scripts/package-helper-app.sh",
+    "helper:install": "zsh scripts/install-helper-app.sh",
     "db:generate": "echo 'prisma disabled'",
     "db:migrate": "echo 'prisma disabled'",
     "db:deploy": "echo 'prisma disabled'"
@@ -27,6 +29,7 @@
     "@vercel/speed-insights": "^1.3.1",
     "framer-motion": "^11.0.0",
     "next": "^14.2.33",
+    "postgres": "^3.4.9",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "three": "^0.160.0",

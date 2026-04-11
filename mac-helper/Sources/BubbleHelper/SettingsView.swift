@@ -82,6 +82,29 @@ struct SettingsView: View {
         }
       }
 
+      Section("App Lifecycle") {
+        Toggle(
+          "Start Bubble Helper at login",
+          isOn: Binding(
+            get: { model.launchAtLoginEnabled },
+            set: { enabled in
+              Task {
+                await model.setLaunchAtLoginEnabled(enabled)
+              }
+            }
+          )
+        )
+        .disabled(!model.launchAtLoginAvailable)
+
+        Text(
+          model.launchAtLoginAvailable
+            ? "Bubble Helper will launch automatically the next time you log into macOS."
+            : "Install and run Bubble Helper from Bubble Helper.app to enable Start at Login."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+
       Section("Helper Status") {
         statusRow(title: "State", value: model.statusTitle)
         statusRow(title: "Detail", value: model.statusDetail)

@@ -5,6 +5,7 @@ import { HelperTokenSummary } from '../cloud';
 import { StorageConflictError, readJsonDocument, writeJsonDocument } from './jsonStore';
 
 const HELPER_TOKENS_KEY = 'helper-tokens';
+const LAST_USED_WRITE_INTERVAL_MS = 15 * 60 * 1000;
 
 type HelperTokenRecord = {
   id: string;
@@ -108,6 +109,11 @@ export async function authenticateHelperToken(token: string) {
     const { doc, etag } = await getHelperTokensDocument();
     const match = doc.tokens.find((record) => !record.revokedAt && timingSafeEqualHash(record.tokenHash, tokenHash));
     if (!match) return null;
+
+    const lastUsedAtMs = match.lastUsedAt ? Date.parse(match.lastUsedAt) : NaN;
+    if (Number.isFinite(lastUsedAtMs) && Date.now() - lastUsedAtMs < LAST_USED_WRITE_INTERVAL_MS) {
+      return match;
+    }
 
     const nextTokens = doc.tokens.map((record) =>
       record.id === match.id

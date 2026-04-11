@@ -18,6 +18,7 @@ import { XAxis } from '../components/visual/XAxis';
 import { VIEWPORT_PAD_LEFT } from '../lib/utils';
 import { AccountMenu } from './ui/AccountMenu';
 import { HelperAccessModal } from './ui/HelperAccessModal';
+import { LegacyDataModal } from './ui/modals/LegacyDataModal';
 import { RemoteStateSnapshot, SyncStatus, mergeExportSchemas, stateSignature } from '@/lib/cloud';
 import { cloneExportSchema } from '@/lib/exportSchema';
 
@@ -64,6 +65,7 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
   const [viewportLeftPadPct, setViewportLeftPadPct] = useState<number>(VIEWPORT_PAD_LEFT);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('initializing');
   const [helperAccessOpen, setHelperAccessOpen] = useState(false);
+  const [legacyDataOpen, setLegacyDataOpen] = useState(false);
 
   const baseStateRef = useRef<ExportSchema>(cloneExportSchema(initialSnapshot.state));
   const baseVersionRef = useRef(initialSnapshot.version);
@@ -136,7 +138,7 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
     const syncToCapsState = (e: KeyboardEvent) => {
       if (e.key !== 'CapsLock') return;
       if (isEditableTarget(e.target)) return;
-      if (showAdd || !!editPersonId || editCategoryOpen || searchOpen || archiveOpen || helperAccessOpen) return;
+      if (showAdd || !!editPersonId || editCategoryOpen || searchOpen || archiveOpen || helperAccessOpen || legacyDataOpen) return;
       e.preventDefault();
       const capsOn = typeof e.getModifierState === 'function' ? e.getModifierState('CapsLock') : false;
       setPoppingOpen(capsOn);
@@ -148,7 +150,7 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
       window.removeEventListener('keydown', syncToCapsState);
       window.removeEventListener('keyup', syncToCapsState);
     };
-  }, [hydrated, remoteReady, showAdd, editPersonId, editCategoryOpen, searchOpen, archiveOpen, helperAccessOpen]);
+  }, [hydrated, remoteReady, showAdd, editPersonId, editCategoryOpen, searchOpen, archiveOpen, helperAccessOpen, legacyDataOpen]);
 
   const currentCategory = useMemo(
     () =>
@@ -330,10 +332,31 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
 
   useEffect(() => {
     if (!hydrated || !remoteReady) return;
-    const poll = setInterval(() => {
-      void pullRemoteState();
-    }, 8000);
-    return () => clearInterval(poll);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const currentInterval = () => (document.visibilityState === 'visible' ? 8000 : 60000);
+
+    const schedule = () => {
+      if (cancelled) return;
+      timeout = setTimeout(async () => {
+        await pullRemoteState();
+        schedule();
+      }, currentInterval());
+    };
+
+    const onVisibilityChange = () => {
+      if (timeout) clearTimeout(timeout);
+      schedule();
+    };
+
+    schedule();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [hydrated, remoteReady, pullRemoteState]);
 
   if (!hydrated || !remoteReady) {
@@ -353,7 +376,8 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
     poppingOpen ||
     searchOpen ||
     archiveOpen ||
-    helperAccessOpen
+    helperAccessOpen ||
+    legacyDataOpen
   );
 
   return (
@@ -401,7 +425,12 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
           <ClockPT />
           <SyncPill status={syncStatus} />
           <FABAddPerson onClick={() => setShowAdd(true)} />
-          <AccountMenu username={username} syncStatus={syncStatus} onOpenHelperAccess={() => setHelperAccessOpen(true)} />
+          <AccountMenu
+            username={username}
+            syncStatus={syncStatus}
+            onOpenHelperAccess={() => setHelperAccessOpen(true)}
+            onOpenLegacyData={() => setLegacyDataOpen(true)}
+          />
         </div>
 
         <AddEditPersonModal open={showAdd} onClose={() => setShowAdd(false)} defaultCategoryId={currentCategory?.id} />
@@ -453,6 +482,7 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
       </main>
 
       <HelperAccessModal open={helperAccessOpen} onClose={() => setHelperAccessOpen(false)} />
+      <LegacyDataModal open={legacyDataOpen} onClose={() => setLegacyDataOpen(false)} />
     </>
   );
 }

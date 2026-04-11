@@ -22,12 +22,25 @@ export function getStorageSecret() {
   return (process.env.BUBBLE_STORAGE_SECRET || getSessionSecret()).trim();
 }
 
+export function getDatabaseUrl() {
+  return (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    ''
+  ).trim();
+}
+
 export function isAuthConfigured() {
   return !!(getAdminPasswordHash() || getAdminPassword());
 }
 
 export function isSessionConfigured() {
   return !!getSessionSecret();
+}
+
+export function isDatabaseConfigured() {
+  return !!getDatabaseUrl();
 }
 
 export function isBlobConfigured() {

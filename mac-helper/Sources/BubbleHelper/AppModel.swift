@@ -17,12 +17,15 @@ final class AppModel: ObservableObject {
   @Published var contactsAccessState: ContactsAccessState = .notDetermined
   @Published var messagesAccessState: MessagesAccessState = .unknown
   @Published var hasStoredHelperToken = false
+  @Published var launchAtLoginEnabled = false
+  @Published var launchAtLoginAvailable = false
 
   private let configurationStore: ConfigurationStore
   private let localStateStore: LocalStateStore
   private let apiClient: BubbleAPIClient
   private let contactsResolver: ContactsResolver
   private let messagesDatabase: MessagesDatabase
+  private let launchAtLoginManager: LaunchAtLoginManager
 
   private var monitorTask: Task<Void, Never>?
   private var syncInFlight = false
@@ -32,7 +35,8 @@ final class AppModel: ObservableObject {
     localStateStore: LocalStateStore? = nil,
     apiClient: BubbleAPIClient = BubbleAPIClient(),
     contactsResolver: ContactsResolver = ContactsResolver(),
-    messagesDatabase: MessagesDatabase = MessagesDatabase()
+    messagesDatabase: MessagesDatabase = MessagesDatabase(),
+    launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
   ) {
     let keychain = KeychainStore(service: "garden.bubble.helper")
     let resolvedLocalStateStore = localStateStore ?? LocalStateStore(keychain: keychain)
@@ -43,6 +47,7 @@ final class AppModel: ObservableObject {
     self.apiClient = apiClient
     self.contactsResolver = contactsResolver
     self.messagesDatabase = messagesDatabase
+    self.launchAtLoginManager = launchAtLoginManager
 
     Task {
       await bootstrapApplication()
@@ -175,6 +180,21 @@ final class AppModel: ObservableObject {
 
   func requestContactsAccess() async {
     contactsAccessState = await contactsResolver.requestAccessIfNeeded()
+  }
+
+  func setLaunchAtLoginEnabled(_ enabled: Bool) async {
+    do {
+      try launchAtLoginManager.setEnabled(enabled)
+      launchAtLoginEnabled = enabled
+      launchAtLoginAvailable = launchAtLoginManager.isAvailable
+      if enabled {
+        lastErrorMessage = nil
+      }
+    } catch {
+      launchAtLoginAvailable = launchAtLoginManager.isAvailable
+      launchAtLoginEnabled = (try? launchAtLoginManager.isEnabled()) ?? false
+      recordError(error)
+    }
   }
 
   func refreshBubbleCatalog(showErrors: Bool) async {
@@ -425,6 +445,7 @@ final class AppModel: ObservableObject {
       recordError(error)
     }
 
+    refreshLaunchAtLoginState()
     await refreshStoredHelperTokenState()
     await refreshPermissions()
     await refreshBubbleCatalog(showErrors: false)
@@ -437,6 +458,18 @@ final class AppModel: ObservableObject {
       hasStoredHelperToken = !(token?.isEmpty ?? true)
     } catch {
       hasStoredHelperToken = false
+      recordError(error)
+    }
+  }
+
+  private func refreshLaunchAtLoginState() {
+    launchAtLoginAvailable = launchAtLoginManager.isAvailable
+
+    do {
+      try launchAtLoginManager.syncCurrentBundlePathIfNeeded()
+      launchAtLoginEnabled = try launchAtLoginManager.isEnabled()
+    } catch {
+      launchAtLoginEnabled = false
       recordError(error)
     }
   }

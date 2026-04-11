@@ -9,9 +9,10 @@ type Props = {
   username: string;
   syncStatus: SyncStatus;
   onOpenHelperAccess: () => void;
+  onOpenLegacyData: () => void;
 };
 
-export function AccountMenu({ username, syncStatus, onOpenHelperAccess }: Props) {
+export function AccountMenu({ username, syncStatus, onOpenHelperAccess, onOpenLegacyData }: Props) {
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -57,6 +58,16 @@ export function AccountMenu({ username, syncStatus, onOpenHelperAccess }: Props)
           </div>
 
           <div className="mt-3 grid gap-2">
+            <GlassButton
+              type="button"
+              className="justify-start"
+              onClick={() => {
+                setOpen(false);
+                onOpenLegacyData();
+              }}
+            >
+              Legacy Data
+            </GlassButton>
             <GlassButton
               type="button"
               className="justify-start"

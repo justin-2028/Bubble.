@@ -3,9 +3,14 @@ import 'server-only';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getStorageSecret, isBlobConfigured, requiresDurableHostedStorage } from './env';
+import postgres from 'postgres';
+import { getDatabaseUrl, getStorageSecret, isBlobConfigured, isDatabaseConfigured, requiresDurableHostedStorage } from './env';
 
 const LOCAL_STORE_DIR = path.join(process.cwd(), '.bubble-data');
+const POSTGRES_TABLE = 'bubble_documents';
+
+let sqlClient: postgres.Sql | null = null;
+let schemaReadyPromise: Promise<void> | null = null;
 
 export class StorageConflictError extends Error {
   constructor(key: string) {
@@ -20,6 +25,26 @@ export type JsonReadResult<T> = {
 };
 
 export async function readJsonDocument<T>(key: string): Promise<JsonReadResult<T>> {
+  if (isDatabaseConfigured()) {
+    const existing = await readPostgresJsonDocument<T>(key);
+    if (existing.value !== null || existing.etag !== null) {
+      return existing;
+    }
+
+    if (isBlobConfigured()) {
+      const migrated = await readBlobJsonDocument<T>(key);
+      if (migrated.value !== null || migrated.etag !== null) {
+        const migratedEtag = await overwritePostgresJsonDocument(key, migrated.value);
+        return {
+          value: migrated.value,
+          etag: migratedEtag,
+        };
+      }
+    }
+
+    return { value: null, etag: null };
+  }
+
   if (isBlobConfigured()) {
     return readBlobJsonDocument<T>(key);
   }
@@ -28,6 +53,10 @@ export async function readJsonDocument<T>(key: string): Promise<JsonReadResult<T
 }
 
 export async function writeJsonDocument<T>(key: string, value: T, etag?: string | null) {
+  if (isDatabaseConfigured()) {
+    return writePostgresJsonDocument(key, value, etag ?? null);
+  }
+
   if (isBlobConfigured()) {
     return writeBlobJsonDocument(key, value, etag ?? null);
   }
@@ -36,6 +65,10 @@ export async function writeJsonDocument<T>(key: string, value: T, etag?: string 
 }
 
 export async function overwriteJsonDocument<T>(key: string, value: T) {
+  if (isDatabaseConfigured()) {
+    return overwritePostgresJsonDocument(key, value);
+  }
+
   if (isBlobConfigured()) {
     return overwriteBlobJsonDocument(key, value);
   }
@@ -49,6 +82,81 @@ function localPathForKey(key: string) {
 
 function blobPathForKey(key: string) {
   return `bubble-private/${key}.json`;
+}
+
+async function readPostgresJsonDocument<T>(key: string): Promise<JsonReadResult<T>> {
+  const sql = await getPostgresClient();
+  const rows = await sql<{ payload: string; etag: string }[]>`
+    select payload, etag
+    from ${sql(POSTGRES_TABLE)}
+    where document_key = ${key}
+    limit 1
+  `;
+
+  const row = rows[0];
+  if (!row) {
+    return { value: null, etag: null };
+  }
+
+  const text = decryptContent(row.payload);
+  return {
+    value: text ? (JSON.parse(text) as T) : null,
+    etag: row.etag,
+  };
+}
+
+async function writePostgresJsonDocument<T>(key: string, value: T, etag: string | null) {
+  const sql = await getPostgresClient();
+  const encrypted = encryptContent(JSON.stringify(value, null, 2));
+  const nextEtag = crypto.randomUUID();
+
+  if (etag === null) {
+    const rows = await sql<{ etag: string }[]>`
+      insert into ${sql(POSTGRES_TABLE)} (document_key, payload, etag, updated_at)
+      values (${key}, ${encrypted}, ${nextEtag}, now())
+      on conflict (document_key) do nothing
+      returning etag
+    `;
+
+    if (!rows[0]?.etag) {
+      throw new StorageConflictError(key);
+    }
+
+    return rows[0].etag;
+  }
+
+  const rows = await sql<{ etag: string }[]>`
+    update ${sql(POSTGRES_TABLE)}
+    set payload = ${encrypted},
+        etag = ${nextEtag},
+        updated_at = now()
+    where document_key = ${key}
+      and etag = ${etag}
+    returning etag
+  `;
+
+  if (!rows[0]?.etag) {
+    throw new StorageConflictError(key);
+  }
+
+  return rows[0].etag;
+}
+
+async function overwritePostgresJsonDocument<T>(key: string, value: T) {
+  const sql = await getPostgresClient();
+  const encrypted = encryptContent(JSON.stringify(value, null, 2));
+  const nextEtag = crypto.randomUUID();
+  const rows = await sql<{ etag: string }[]>`
+    insert into ${sql(POSTGRES_TABLE)} (document_key, payload, etag, updated_at)
+    values (${key}, ${encrypted}, ${nextEtag}, now())
+    on conflict (document_key) do update
+    set payload = excluded.payload,
+        etag = excluded.etag,
+        updated_at = excluded.updated_at
+    returning etag
+  `;
+
+  return rows[0]?.etag ?? nextEtag;
 }
 
 async function readLocalJsonDocument<T>(key: string): Promise<JsonReadResult<T>> {
@@ -172,8 +280,45 @@ function assertLocalFallbackAllowed() {
   }
 
   throw new Error(
-    'BLOB_READ_WRITE_TOKEN must be configured for hosted Bubble storage in production. Local JSON fallback is development-only.'
+    'DATABASE_URL or a temporary BLOB_READ_WRITE_TOKEN must be configured for hosted Bubble storage in production. Local JSON fallback is development-only.'
   );
+}
+
+async function getPostgresClient() {
+  const databaseUrl = getDatabaseUrl();
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL must be configured for hosted Postgres storage');
+  }
+
+  if (!sqlClient) {
+    sqlClient = postgres(databaseUrl, {
+      max: 1,
+      prepare: false,
+      idle_timeout: 20,
+      connect_timeout: 10,
+    });
+  }
+
+  if (!schemaReadyPromise) {
+    schemaReadyPromise = ensurePostgresSchema(sqlClient).catch((error) => {
+      schemaReadyPromise = null;
+      throw error;
+    });
+  }
+
+  await schemaReadyPromise;
+  return sqlClient;
+}
+
+async function ensurePostgresSchema(sql: postgres.Sql) {
+  await sql`
+    create table if not exists ${sql(POSTGRES_TABLE)} (
+      document_key text primary key,
+      payload text not null,
+      etag text not null,
+      updated_at timestamptz not null default now()
+    )
+  `;
 }
 
 function encryptContent(plaintext: string) {
