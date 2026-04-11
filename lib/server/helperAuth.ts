@@ -5,7 +5,7 @@ import { authenticateHelperToken } from './helperTokens';
 
 type HelperRequestAuthError = {
   ok: false;
-  status: 401;
+  status: 401 | 503;
   error: string;
 };
 
@@ -29,7 +29,18 @@ export async function authenticateHelperRequest(
     };
   }
 
-  const helper = await authenticateHelperToken(token);
+  let helper;
+  try {
+    helper = await authenticateHelperToken(token);
+  } catch (error) {
+    console.error('Helper token authentication failed.', error);
+    return {
+      ok: false,
+      status: 503,
+      error: 'Hosted Bubble storage is temporarily unavailable.',
+    };
+  }
+
   if (!helper) {
     return {
       ok: false,
