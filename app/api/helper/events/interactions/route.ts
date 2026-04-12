@@ -11,56 +11,51 @@ const interactionSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  try {
-    const auth = await authenticateHelperRequest(request);
-    if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
-
-    const parsed = interactionSchema.safeParse(await request.json().catch(() => null));
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid interaction payload.' }, { status: 400 });
-    }
-
-    const { bubbleIds, occurredAt, timeZone } = parsed.data;
-    const bubbleIdSet = new Set(bubbleIds);
-    let updatedCount = 0;
-
-    const doc = await mutateAppState((current) => {
-      const targetGroupIds = new Set<string>();
-      for (const person of current.people) {
-        const groupId = person.duplicateGroupId ?? person.id;
-        if (bubbleIdSet.has(person.id) || bubbleIdSet.has(groupId)) {
-          targetGroupIds.add(groupId);
-        }
-      }
-
-      return {
-        ...current,
-        people: current.people.map((person) => {
-          const groupId = person.duplicateGroupId ?? person.id;
-          if (!targetGroupIds.has(groupId)) return person;
-          if (sameCalendarDayInTimeZone(person.lastInteraction, occurredAt, timeZone)) return person;
-          if (!isMoreRecentIso(person.lastInteraction, occurredAt)) return person;
-          updatedCount += 1;
-          return {
-            ...person,
-            lastInteraction: occurredAt,
-            interactionCount: (typeof person.interactionCount === 'number' ? person.interactionCount : 0) + 1,
-          };
-        }),
-      };
-    });
-
-    return NextResponse.json({
-      ok: true,
-      helperId: auth.helper.id,
-      updatedCount,
-      version: doc.version,
-      updatedAt: doc.updatedAt,
-    });
-  } catch (error) {
-    console.error('Helper interaction update failed.', error);
-    return NextResponse.json({ error: 'Hosted Bubble storage is temporarily unavailable.' }, { status: 503 });
+  const auth = await authenticateHelperRequest(request);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+
+  const parsed = interactionSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid interaction payload.' }, { status: 400 });
+  }
+
+  const { bubbleIds, occurredAt, timeZone } = parsed.data;
+  const bubbleIdSet = new Set(bubbleIds);
+  let updatedCount = 0;
+
+  const doc = await mutateAppState((current) => {
+    const targetGroupIds = new Set<string>();
+    for (const person of current.people) {
+      const groupId = person.duplicateGroupId ?? person.id;
+      if (bubbleIdSet.has(person.id) || bubbleIdSet.has(groupId)) {
+        targetGroupIds.add(groupId);
+      }
+    }
+
+    return {
+      ...current,
+      people: current.people.map((person) => {
+        const groupId = person.duplicateGroupId ?? person.id;
+        if (!targetGroupIds.has(groupId)) return person;
+        if (sameCalendarDayInTimeZone(person.lastInteraction, occurredAt, timeZone)) return person;
+        if (!isMoreRecentIso(person.lastInteraction, occurredAt)) return person;
+        updatedCount += 1;
+        return {
+          ...person,
+          lastInteraction: occurredAt,
+          interactionCount: (typeof person.interactionCount === 'number' ? person.interactionCount : 0) + 1,
+        };
+      }),
+    };
+  });
+
+  return NextResponse.json({
+    ok: true,
+    helperId: auth.helper.id,
+    updatedCount,
+    version: doc.version,
+    updatedAt: doc.updatedAt,
+  });
 }

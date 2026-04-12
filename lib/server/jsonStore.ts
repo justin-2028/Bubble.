@@ -8,8 +8,6 @@ import { getDatabaseUrl, getStorageSecret, isBlobConfigured, isDatabaseConfigure
 
 const LOCAL_STORE_DIR = path.join(process.cwd(), '.bubble-data');
 const POSTGRES_TABLE = 'bubble_documents';
-const POSTGRES_CONNECT_TIMEOUT_SECONDS = 30;
-const POSTGRES_INIT_RETRIES = 2;
 
 let sqlClient: postgres.Sql | null = null;
 let schemaReadyPromise: Promise<void> | null = null;
@@ -291,51 +289,25 @@ async function getPostgresClient() {
   if (!databaseUrl) {
     throw new Error('DATABASE_URL must be configured for hosted Postgres storage');
   }
-  let lastError: unknown;
 
-  for (let attempt = 0; attempt < POSTGRES_INIT_RETRIES; attempt += 1) {
-    try {
-      if (!sqlClient) {
-        const candidate = postgres(databaseUrl, {
-          max: 1,
-          prepare: false,
-          idle_timeout: 20,
-          connect_timeout: POSTGRES_CONNECT_TIMEOUT_SECONDS,
-          onclose: () => {
-            if (sqlClient === candidate) {
-              sqlClient = null;
-              schemaReadyPromise = null;
-            }
-          },
-        });
-        sqlClient = candidate;
-      }
-
-      if (!schemaReadyPromise) {
-        const candidate = sqlClient;
-        schemaReadyPromise = ensurePostgresSchema(candidate).catch(async (error) => {
-          if (sqlClient === candidate) {
-            await resetPostgresClient(candidate);
-          } else {
-            schemaReadyPromise = null;
-          }
-          throw error;
-        });
-      }
-
-      await schemaReadyPromise;
-      return sqlClient;
-    } catch (error) {
-      lastError = error;
-      if (attempt < POSTGRES_INIT_RETRIES - 1) {
-        await resetPostgresClient();
-        await delay((attempt + 1) * 500);
-        continue;
-      }
-    }
+  if (!sqlClient) {
+    sqlClient = postgres(databaseUrl, {
+      max: 1,
+      prepare: false,
+      idle_timeout: 20,
+      connect_timeout: 10,
+    });
   }
 
-  throw lastError;
+  if (!schemaReadyPromise) {
+    schemaReadyPromise = ensurePostgresSchema(sqlClient).catch((error) => {
+      schemaReadyPromise = null;
+      throw error;
+    });
+  }
+
+  await schemaReadyPromise;
+  return sqlClient;
 }
 
 async function ensurePostgresSchema(sql: postgres.Sql) {
@@ -347,26 +319,6 @@ async function ensurePostgresSchema(sql: postgres.Sql) {
       updated_at timestamptz not null default now()
     )
   `;
-}
-
-async function resetPostgresClient(expectedClient?: postgres.Sql | null) {
-  const client = expectedClient && sqlClient !== expectedClient ? null : sqlClient;
-  sqlClient = null;
-  schemaReadyPromise = null;
-
-  if (!client) {
-    return;
-  }
-
-  try {
-    await client.end({ timeout: 0 });
-  } catch {
-    // Ignore cleanup failures while forcing a fresh client on the next request.
-  }
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function encryptContent(plaintext: string) {

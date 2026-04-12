@@ -107,7 +107,7 @@ actor BubbleAPIClient {
     }
 
     guard (200 ..< 300).contains(httpResponse.statusCode) else {
-      let message = requestFailureMessage(from: data, statusCode: httpResponse.statusCode, path: path)
+      let message = serverMessage(from: data) ?? "Bubble rejected the helper request."
       throw BubbleAPIClientError.server(status: httpResponse.statusCode, message: message)
     }
 
@@ -124,26 +124,5 @@ actor BubbleAPIClient {
       return nil
     }
     return message
-  }
-
-  private func requestFailureMessage(from data: Data, statusCode: Int, path: String) -> String {
-    if let message = serverMessage(from: data) {
-      return "Bubble API \(path) failed (HTTP \(statusCode)): \(message)"
-    }
-
-    if
-      let text = String(data: data, encoding: .utf8)?
-        .trimmingCharacters(in: .whitespacesAndNewlines),
-      !text.isEmpty
-    {
-      if text.hasPrefix("<") {
-        return "Bubble API \(path) failed (HTTP \(statusCode)) and returned an HTML error page."
-      }
-
-      let snippet = String(text.prefix(180))
-      return "Bubble API \(path) failed (HTTP \(statusCode)): \(snippet)"
-    }
-
-    return "Bubble API \(path) failed (HTTP \(statusCode))."
   }
 }
