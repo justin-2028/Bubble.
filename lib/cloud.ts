@@ -1,5 +1,5 @@
 import { defaultSystemControls } from './defaultData';
-import { ExportSchema, Person, SystemControls } from './types';
+import { Category, ExportSchema, Label, Person, SystemControls } from './types';
 
 export type SyncStatus = 'initializing' | 'synced' | 'saving' | 'conflict' | 'error';
 
@@ -7,6 +7,20 @@ export interface RemoteStateSnapshot {
   version: number;
   updatedAt: string;
   state: ExportSchema;
+}
+
+export interface RemoteCollectionDelta<T> {
+  upserted: T[];
+  deletedIds: string[];
+}
+
+export interface RemoteStateDelta {
+  version: number;
+  updatedAt: string;
+  categories: RemoteCollectionDelta<Category>;
+  labels: RemoteCollectionDelta<Label>;
+  people: RemoteCollectionDelta<Person>;
+  systemControls: SystemControls | null;
 }
 
 export interface HelperTokenSummary {
@@ -75,6 +89,18 @@ export function stateSignature(state: ExportSchema) {
   return JSON.stringify(state);
 }
 
+export function applyRemoteStateDelta(base: ExportSchema, delta: RemoteStateDelta): ExportSchema {
+  return {
+    version: typeof base.version === 'number' ? base.version : 2,
+    categories: applyCollectionDelta(base.categories, delta.categories, (items) =>
+      items.slice().sort((a, b) => a.sortOrder - b.sortOrder)
+    ),
+    labels: applyCollectionDelta(base.labels ?? [], delta.labels),
+    people: applyCollectionDelta(base.people, delta.people),
+    systemControls: delta.systemControls ?? base.systemControls ?? { ...defaultSystemControls },
+  };
+}
+
 export function mergeExportSchemas(base: ExportSchema, local: ExportSchema, remote: ExportSchema): ExportSchema {
   return {
     version: Math.max(local.version ?? 2, remote.version ?? 2, base.version ?? 2),
@@ -106,6 +132,37 @@ function dateKeyInTimeZone(iso: string | null | undefined, timeZone: string) {
 }
 
 type WithId = { id: string };
+
+function applyCollectionDelta<T extends WithId>(
+  current: T[],
+  delta: RemoteCollectionDelta<T>,
+  finalize?: (items: T[]) => T[]
+) {
+  const deleted = new Set(delta.deletedIds);
+  const replacements = new Map(delta.upserted.map((item) => [item.id, item] as const));
+  const seen = new Set<string>();
+  const next: T[] = [];
+
+  for (const item of current) {
+    if (deleted.has(item.id)) continue;
+    const replacement = replacements.get(item.id);
+    if (replacement) {
+      next.push(replacement);
+      seen.add(item.id);
+      continue;
+    }
+    next.push(item);
+    seen.add(item.id);
+  }
+
+  for (const item of delta.upserted) {
+    if (deleted.has(item.id) || seen.has(item.id)) continue;
+    next.push(item);
+    seen.add(item.id);
+  }
+
+  return finalize ? finalize(next) : next;
+}
 
 function mergeCollection<T extends WithId>(
   base: T[],

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSession } from '@/lib/server/auth';
-import { getAppStateDocument, replaceAppState } from '@/lib/server/appState';
+import { getAppStateDocument, getAppStateVersionSnapshot, replaceAppState } from '@/lib/server/appState';
 import { normalizeExportSchema } from '@/lib/exportSchema';
 
 const putStateSchema = z.object({
@@ -14,9 +14,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const current = await getAppStateDocument();
   const requestedVersion = Number(request.nextUrl.searchParams.get('version') || '');
-  if (Number.isFinite(requestedVersion) && requestedVersion === current.doc.version) {
+  const currentVersion = await getAppStateVersionSnapshot();
+  if (Number.isFinite(requestedVersion) && requestedVersion === currentVersion.version) {
     return new NextResponse(null, {
       status: 304,
       headers: {
@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
       },
     });
   }
+
+  const current = await getAppStateDocument();
 
   return NextResponse.json(
     {

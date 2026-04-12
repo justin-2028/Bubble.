@@ -19,10 +19,12 @@ import { VIEWPORT_PAD_LEFT } from '../lib/utils';
 import { AccountMenu } from './ui/AccountMenu';
 import { HelperAccessModal } from './ui/HelperAccessModal';
 import { LegacyDataModal } from './ui/modals/LegacyDataModal';
-import { RemoteStateSnapshot, SyncStatus, mergeExportSchemas, stateSignature } from '@/lib/cloud';
+import { RemoteStateDelta, RemoteStateSnapshot, SyncStatus, applyRemoteStateDelta, mergeExportSchemas, stateSignature } from '@/lib/cloud';
 import { cloneExportSchema } from '@/lib/exportSchema';
 
 const SYNC_REQUEST_TIMEOUT_MS = 15_000;
+const FOREGROUND_SYNC_INTERVAL_MS = 15_000;
+const BACKGROUND_SYNC_INTERVAL_MS = 5 * 60_000;
 
 async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = SYNC_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -262,28 +264,64 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
     if (saveInFlightRef.current) return;
 
     try {
-      const response = await fetchWithTimeout(`/api/state?version=${baseVersionRef.current}`, {
+      const versionResponse = await fetchWithTimeout('/api/state/version', {
         cache: 'no-store',
       });
-
-      if (response.status === 304) return;
-      if (response.status === 401) {
+      if (versionResponse.status === 401) {
         window.location.href = '/login';
         return;
       }
-      if (!response.ok) return;
+      if (!versionResponse.ok) return;
 
-      const payload = await response.json().catch(() => null);
-      if (!payload?.state) return;
+      const versionPayload = await versionResponse.json().catch(() => null);
+      if (!versionPayload || typeof versionPayload.version !== 'number') return;
+      if (versionPayload.version === baseVersionRef.current) return;
+
+      const deltaResponse = await fetchWithTimeout(`/api/state/delta?sinceVersion=${baseVersionRef.current}`, {
+        cache: 'no-store',
+      });
+      if (deltaResponse.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+
+      let remoteState = null as null | RemoteStateSnapshot['state'];
+      let remoteVersion = versionPayload.version as number;
+
+      if (deltaResponse.ok) {
+        const deltaPayload = (await deltaResponse.json().catch(() => null)) as RemoteStateDelta | null;
+        if (deltaPayload && typeof deltaPayload.version === 'number') {
+          remoteState = applyRemoteStateDelta(baseStateRef.current, deltaPayload);
+          remoteVersion = deltaPayload.version;
+        }
+      }
+
+      if (!remoteState) {
+        const fullResponse = await fetchWithTimeout('/api/state', {
+          cache: 'no-store',
+        });
+        if (fullResponse.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        if (!fullResponse.ok) return;
+        const fullPayload = await fullResponse.json().catch(() => null);
+        if (!fullPayload?.state || typeof fullPayload.version !== 'number') return;
+        remoteState = fullPayload.state;
+        remoteVersion = fullPayload.version;
+      }
+
+      if (!remoteState) return;
+      const resolvedRemoteState = remoteState;
 
       const localState = exportData();
       const localDirty = stateSignature(localState) !== stateSignature(baseStateRef.current);
 
       if (!localDirty) {
         applyingRemoteRef.current = true;
-        importData(payload.state);
-        baseStateRef.current = cloneExportSchema(payload.state);
-        baseVersionRef.current = payload.version;
+        importData(resolvedRemoteState);
+        baseStateRef.current = cloneExportSchema(resolvedRemoteState);
+        baseVersionRef.current = remoteVersion;
         setSyncStatus('synced');
         queueMicrotask(() => {
           applyingRemoteRef.current = false;
@@ -291,11 +329,11 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
         return;
       }
 
-      const mergedState = mergeExportSchemas(baseStateRef.current, localState, payload.state);
+      const mergedState = mergeExportSchemas(baseStateRef.current, localState, resolvedRemoteState);
       applyingRemoteRef.current = true;
       importData(mergedState);
-      baseStateRef.current = cloneExportSchema(payload.state);
-      baseVersionRef.current = payload.version;
+      baseStateRef.current = cloneExportSchema(resolvedRemoteState);
+      baseVersionRef.current = remoteVersion;
       setSyncStatus('conflict');
       queueMicrotask(() => {
         applyingRemoteRef.current = false;
@@ -335,7 +373,8 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
-    const currentInterval = () => (document.visibilityState === 'visible' ? 8000 : 60000);
+    const currentInterval = () =>
+      document.visibilityState === 'visible' ? FOREGROUND_SYNC_INTERVAL_MS : BACKGROUND_SYNC_INTERVAL_MS;
 
     const schedule = () => {
       if (cancelled) return;

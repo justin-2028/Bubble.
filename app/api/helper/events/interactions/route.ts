@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { mutateAppState } from '@/lib/server/appState';
-import { isMoreRecentIso, sameCalendarDayInTimeZone } from '@/lib/cloud';
+import { applyInteractionUpdate } from '@/lib/server/appState';
 import { authenticateHelperRequest } from '@/lib/server/helperAuth';
 
 const interactionSchema = z.object({
@@ -22,40 +21,17 @@ export async function POST(request: NextRequest) {
   }
 
   const { bubbleIds, occurredAt, timeZone } = parsed.data;
-  const bubbleIdSet = new Set(bubbleIds);
-  let updatedCount = 0;
-
-  const doc = await mutateAppState((current) => {
-    const targetGroupIds = new Set<string>();
-    for (const person of current.people) {
-      const groupId = person.duplicateGroupId ?? person.id;
-      if (bubbleIdSet.has(person.id) || bubbleIdSet.has(groupId)) {
-        targetGroupIds.add(groupId);
-      }
-    }
-
-    return {
-      ...current,
-      people: current.people.map((person) => {
-        const groupId = person.duplicateGroupId ?? person.id;
-        if (!targetGroupIds.has(groupId)) return person;
-        if (sameCalendarDayInTimeZone(person.lastInteraction, occurredAt, timeZone)) return person;
-        if (!isMoreRecentIso(person.lastInteraction, occurredAt)) return person;
-        updatedCount += 1;
-        return {
-          ...person,
-          lastInteraction: occurredAt,
-          interactionCount: (typeof person.interactionCount === 'number' ? person.interactionCount : 0) + 1,
-        };
-      }),
-    };
+  const result = await applyInteractionUpdate({
+    bubbleIds,
+    occurredAt,
+    timeZone,
   });
 
   return NextResponse.json({
     ok: true,
     helperId: auth.helper.id,
-    updatedCount,
-    version: doc.version,
-    updatedAt: doc.updatedAt,
+    updatedCount: result.updatedCount,
+    version: result.version,
+    updatedAt: result.updatedAt,
   });
 }
