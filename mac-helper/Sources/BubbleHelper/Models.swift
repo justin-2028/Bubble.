@@ -168,6 +168,14 @@ struct BubbleInteractionUpdate: Encodable {
   let occurredAt: Date
 }
 
+struct BubbleInteractionUpdateResponse: Decodable {
+  let ok: Bool
+  let helperId: String
+  let updatedCount: Int
+  let version: Int
+  let updatedAt: String
+}
+
 struct ImportCandidate: Identifiable, Hashable {
   let identityHash: String
   let canonicalIdentityKey: String

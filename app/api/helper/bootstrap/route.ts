@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateHelperRequest } from '@/lib/server/helperAuth';
-import { getAppStateDocument } from '@/lib/server/appState';
+import { getHelperBootstrapState } from '@/lib/server/appState';
 
 export async function GET(request: NextRequest) {
   const auth = await authenticateHelperRequest(request);
@@ -8,8 +8,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const current = await getAppStateDocument();
-  const orderedCategories = current.doc.data.categories
+  const current = await getHelperBootstrapState();
+  const orderedCategories = current.categories
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((category) => ({
@@ -20,8 +20,8 @@ export async function GET(request: NextRequest) {
   const categoryOrderById = new Map(orderedCategories.map((category) => [category.id, category.sortOrder]));
   const categoryNameById = new Map(orderedCategories.map((category) => [category.id, category.name]));
 
-  const groupedPeople = new Map<string, typeof current.doc.data.people>();
-  for (const person of current.doc.data.people.filter((entry) => !entry.archivedAt)) {
+  const groupedPeople = new Map<string, typeof current.people>();
+  for (const person of current.people.filter((entry) => !entry.archivedAt)) {
     const groupId = person.duplicateGroupId ?? person.id;
     const existing = groupedPeople.get(groupId);
     if (existing) {
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
         fullName: representative.fullName,
         categoryId: representative.categoryId,
         lastInteraction: latestInteraction,
-        image: people.find((person) => typeof person.image === 'string' && person.image.length > 0)?.image ?? representative.image,
+        image: undefined,
         starred: people.some((person) => !!person.starred),
         duplicateCount: people.length,
         categoryNames,

@@ -363,20 +363,31 @@ final class AppModel: ObservableObject {
       try await localStateStore.saveState(nextState)
       localState = nextState
 
+      var backfillMessage = ""
       if let occurredAt = candidate.lastSeenAt,
          let baseURL = configuredBaseURL(),
          let helperToken = await helperToken()
       {
-        try? await apiClient.sendInteractionUpdate(
-          baseURL: baseURL,
-          helperToken: helperToken,
-          bubbleIDs: [bubble.id],
-          occurredAt: occurredAt,
-          timeZone: TimeZone.current.identifier
-        )
+        do {
+          let response = try await apiClient.sendInteractionUpdate(
+            baseURL: baseURL,
+            helperToken: helperToken,
+            bubbleIDs: [bubble.id],
+            occurredAt: occurredAt,
+            timeZone: TimeZone.current.identifier
+          )
+          let dayKey = calendarDayKey(for: occurredAt, timeZone: TimeZone.current)
+          nextState.lastSyncedInteractionDays[bubble.id] = dayKey
+          try await localStateStore.saveState(nextState)
+          localState = nextState
+          backfillMessage = response.updatedCount > 0 ? " Last interaction was sent to Bubble." : " Bubble already had that interaction day."
+        } catch {
+          recordError(error)
+          backfillMessage = " Link saved locally, but the last interaction was not sent."
+        }
       }
 
-      importFeedbackMessage = "Linked \(candidate.displayName) to \(bubble.fullName)."
+      importFeedbackMessage = "Linked \(candidate.displayName) to \(bubble.fullName).\(backfillMessage)"
     } catch {
       recordError(error)
       importFeedbackMessage = "Bubble linking failed."
@@ -546,13 +557,27 @@ final class AppModel: ObservableObject {
       var nextState = try await localStateStore.loadState()
       let events = try await messagesDatabase.fetchEvents(afterRowID: nextState.lastProcessedMessageRowID, limit: 500)
       let timeZone = TimeZone.current
-      let interactionUpdates = try await prepareInteractionUpdates(from: events, state: nextState, timeZone: timeZone)
+      let interactionUpdates = try await prepareInteractionUpdates(
+        from: events,
+        state: nextState,
+        timeZone: timeZone,
+        skipAlreadySyncedDays: !manual
+      )
+      let recentInteractionUpdates = try await prepareRecentLinkedInteractionUpdates(
+        state: nextState,
+        timeZone: timeZone,
+        skipAlreadySyncedDays: !manual
+      )
+      let updatesToSend = mergeInteractionUpdates(interactionUpdates + recentInteractionUpdates)
 
-      if !interactionUpdates.isEmpty {
-        try await apiClient.sendInteractionUpdates(
+      let updateResponse: BubbleInteractionUpdateResponse?
+      if updatesToSend.isEmpty {
+        updateResponse = nil
+      } else {
+        updateResponse = try await apiClient.sendInteractionUpdates(
           baseURL: baseURL,
           helperToken: helperToken,
-          updates: interactionUpdates.map { update in
+          updates: updatesToSend.map { update in
             BubbleInteractionUpdate(bubbleID: update.bubbleID, occurredAt: update.occurredAt)
           },
           timeZone: timeZone.identifier
@@ -562,7 +587,7 @@ final class AppModel: ObservableObject {
       for event in events {
         nextState.lastProcessedMessageRowID = max(nextState.lastProcessedMessageRowID, event.rowID)
       }
-      for update in interactionUpdates {
+      for update in updatesToSend {
         nextState.lastSyncedInteractionDays[update.bubbleID] = update.dayKey
       }
       pruneInteractionDayCache(&nextState, relativeTo: Date(), timeZone: timeZone)
@@ -573,10 +598,21 @@ final class AppModel: ObservableObject {
       if configuration.automaticDailySyncEnabled {
         setRuntime(
           .running,
-          detail: manual ? "Bubble Helper is up to date. Automatic sync will run again at midnight." : "Automatic daily sync is enabled."
+          detail: syncCompletionDetail(
+            manual: manual,
+            sentCount: updatesToSend.count,
+            updatedCount: updateResponse?.updatedCount ?? 0
+          )
         )
       } else {
-        setRuntime(.paused, detail: "Automatic sync is off. Last manual sync completed.")
+        setRuntime(
+          .paused,
+          detail: syncCompletionDetail(
+            manual: manual,
+            sentCount: updatesToSend.count,
+            updatedCount: updateResponse?.updatedCount ?? 0
+          )
+        )
       }
     } catch {
       recordError(error)
@@ -620,7 +656,8 @@ final class AppModel: ObservableObject {
   private func prepareInteractionUpdates(
     from events: [MessageEvent],
     state: LocalHelperState,
-    timeZone: TimeZone
+    timeZone: TimeZone,
+    skipAlreadySyncedDays: Bool
   ) async throws -> [PreparedInteractionUpdate] {
     var latestByBubbleAndDay: [String: PreparedInteractionUpdate] = [:]
 
@@ -632,35 +669,112 @@ final class AppModel: ObservableObject {
 
       let dayKey = calendarDayKey(for: event.occurredAt, timeZone: timeZone)
       for bubbleID in bubbleIDs {
-        if state.lastSyncedInteractionDays[bubbleID] == dayKey {
+        if skipAlreadySyncedDays && state.lastSyncedInteractionDays[bubbleID] == dayKey {
           continue
         }
 
-        let cacheKey = "\(bubbleID)|\(dayKey)"
-        if let existing = latestByBubbleAndDay[cacheKey] {
-          if event.occurredAt > existing.occurredAt {
-            latestByBubbleAndDay[cacheKey] = PreparedInteractionUpdate(
-              bubbleID: bubbleID,
-              occurredAt: event.occurredAt,
-              dayKey: dayKey
-            )
-          }
-        } else {
-          latestByBubbleAndDay[cacheKey] = PreparedInteractionUpdate(
-            bubbleID: bubbleID,
-            occurredAt: event.occurredAt,
-            dayKey: dayKey
-          )
-        }
+        upsertPreparedInteraction(
+          &latestByBubbleAndDay,
+          bubbleID: bubbleID,
+          occurredAt: event.occurredAt,
+          dayKey: dayKey
+        )
       }
     }
 
-    return latestByBubbleAndDay.values.sorted { lhs, rhs in
+    return sortPreparedInteractions(Array(latestByBubbleAndDay.values))
+  }
+
+  private func prepareRecentLinkedInteractionUpdates(
+    state: LocalHelperState,
+    timeZone: TimeZone,
+    skipAlreadySyncedDays: Bool
+  ) async throws -> [PreparedInteractionUpdate] {
+    let linksByHash = Dictionary(uniqueKeysWithValues: state.links.map { ($0.identityHash, $0) })
+    if linksByHash.isEmpty {
+      return []
+    }
+
+    let recentParticipants = try await messagesDatabase.recentParticipants(limit: max(500, linksByHash.count * 4))
+    var latestByBubbleAndDay: [String: PreparedInteractionUpdate] = [:]
+
+    for participant in recentParticipants {
+      guard let lastSeenAt = participant.lastSeenAt else { continue }
+      let identityHash = try await identityHash(forHandle: participant.handle)
+      guard let link = linksByHash[identityHash] else { continue }
+
+      let dayKey = calendarDayKey(for: lastSeenAt, timeZone: timeZone)
+      if skipAlreadySyncedDays && state.lastSyncedInteractionDays[link.bubbleId] == dayKey {
+        continue
+      }
+
+      upsertPreparedInteraction(
+        &latestByBubbleAndDay,
+        bubbleID: link.bubbleId,
+        occurredAt: lastSeenAt,
+        dayKey: dayKey
+      )
+    }
+
+    return sortPreparedInteractions(Array(latestByBubbleAndDay.values))
+  }
+
+  private func mergeInteractionUpdates(_ updates: [PreparedInteractionUpdate]) -> [PreparedInteractionUpdate] {
+    var latestByBubbleAndDay: [String: PreparedInteractionUpdate] = [:]
+    for update in updates {
+      upsertPreparedInteraction(
+        &latestByBubbleAndDay,
+        bubbleID: update.bubbleID,
+        occurredAt: update.occurredAt,
+        dayKey: update.dayKey
+      )
+    }
+    return sortPreparedInteractions(Array(latestByBubbleAndDay.values))
+  }
+
+  private func upsertPreparedInteraction(
+    _ latestByBubbleAndDay: inout [String: PreparedInteractionUpdate],
+    bubbleID: String,
+    occurredAt: Date,
+    dayKey: String
+  ) {
+    let cacheKey = "\(bubbleID)|\(dayKey)"
+    if let existing = latestByBubbleAndDay[cacheKey], occurredAt <= existing.occurredAt {
+      return
+    }
+
+    latestByBubbleAndDay[cacheKey] = PreparedInteractionUpdate(
+      bubbleID: bubbleID,
+      occurredAt: occurredAt,
+      dayKey: dayKey
+    )
+  }
+
+  private func sortPreparedInteractions(_ updates: [PreparedInteractionUpdate]) -> [PreparedInteractionUpdate] {
+    updates.sorted { lhs, rhs in
       if lhs.occurredAt != rhs.occurredAt {
         return lhs.occurredAt < rhs.occurredAt
       }
       return lhs.bubbleID < rhs.bubbleID
     }
+  }
+
+  private func syncCompletionDetail(manual: Bool, sentCount: Int, updatedCount: Int) -> String {
+    if sentCount == 0 {
+      if configuration.automaticDailySyncEnabled {
+        return manual
+          ? "No linked iMessage activity needed syncing. Automatic sync will run again at midnight."
+          : "Automatic daily sync completed. No linked iMessage activity needed syncing."
+      }
+      return "No linked iMessage activity needed syncing."
+    }
+
+    let checked = "\(sentCount) linked \(sentCount == 1 ? "Bubble" : "Bubbles") checked"
+    let updated = "\(updatedCount) \(updatedCount == 1 ? "date" : "dates") changed"
+    if configuration.automaticDailySyncEnabled {
+      return "\(checked); \(updated). Automatic sync will run again at midnight."
+    }
+    return "\(checked); \(updated)."
   }
 
   private func identityHash(forHandle handle: String) async throws -> String {

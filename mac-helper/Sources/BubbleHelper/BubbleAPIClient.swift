@@ -56,7 +56,7 @@ actor BubbleAPIClient {
     bubbleIDs: [String],
     occurredAt: Date,
     timeZone: String
-  ) async throws {
+  ) async throws -> BubbleInteractionUpdateResponse {
     try await sendInteractionUpdates(
       baseURL: baseURL,
       helperToken: helperToken,
@@ -70,7 +70,7 @@ actor BubbleAPIClient {
     helperToken: String,
     updates: [BubbleInteractionUpdate],
     timeZone: String
-  ) async throws {
+  ) async throws -> BubbleInteractionUpdateResponse {
     struct RequestBody: Encodable {
       struct Update: Encodable {
         let bubbleId: String
@@ -94,8 +94,7 @@ actor BubbleAPIClient {
       )
     )
 
-    struct EmptyResponse: Decodable {}
-    let _: EmptyResponse = try await performJSONRequest(
+    return try await performJSONRequest(
       baseURL: baseURL,
       helperToken: helperToken,
       path: "/api/helper/events/interactions",

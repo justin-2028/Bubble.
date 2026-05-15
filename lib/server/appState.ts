@@ -116,6 +116,39 @@ export async function getAppStateDocument() {
   return readHostedAppStateDocument(sql);
 }
 
+export async function getHelperBootstrapState() {
+  if (!isDatabaseConfigured()) {
+    const current = await legacyGetAppStateDocument();
+    return {
+      categories: current.doc.data.categories,
+      people: current.doc.data.people,
+    };
+  }
+
+  const sql = await getHostedSql();
+  await ensureNormalizedStateInitialized(sql);
+
+  const [categories, people] = await Promise.all([
+    sql<CategoryRow[]>`
+      select *
+      from ${sql(HOSTED_TABLES.categories)}
+      where deleted_at is null
+      order by sort_order asc, id asc
+    `,
+    sql<PersonRow[]>`
+      select *
+      from ${sql(HOSTED_TABLES.people)}
+      where deleted_at is null
+      order by list_order asc, id asc
+    `,
+  ]);
+
+  return {
+    categories: categories.map(mapCategoryRow),
+    people: people.map((row) => mapPersonRowWithImage(row, undefined, false)),
+  };
+}
+
 export async function getAppStateVersionSnapshot(): Promise<StateVersionSnapshot> {
   if (!isDatabaseConfigured()) {
     const current = await legacyGetAppStateDocument();
@@ -566,7 +599,7 @@ export async function applyInteractionUpdate(params: {
     const nextVersion = meta.version + 1;
     const updatedAt = new Date().toISOString();
 
-      for (const row of rowsToUpdate) {
+    for (const row of rowsToUpdate) {
       await tx`
         update ${tx(HOSTED_TABLES.people)}
         set last_interaction = ${params.occurredAt},
