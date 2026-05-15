@@ -501,15 +501,28 @@ export async function applyInteractionUpdate(params: {
   occurredAt: string;
   timeZone: string;
 }) {
+  return applyInteractionUpdates({
+    updates: params.bubbleIds.map((bubbleId) => ({ bubbleId, occurredAt: params.occurredAt })),
+    timeZone: params.timeZone,
+  });
+}
+
+export async function applyInteractionUpdates(params: {
+  updates: Array<{ bubbleId: string; occurredAt: string }>;
+  timeZone: string;
+}) {
   if (!isDatabaseConfigured()) {
     let updatedCount = 0;
     const doc = await legacyMutateAppState((current) => {
-      const bubbleIdSet = new Set(params.bubbleIds);
-      const targetGroupIds = new Set<string>();
-      for (const person of current.people) {
-        const groupId = person.duplicateGroupId ?? person.id;
-        if (bubbleIdSet.has(person.id) || bubbleIdSet.has(groupId)) {
-          targetGroupIds.add(groupId);
+      const latestByGroupId = new Map<string, string>();
+      for (const update of params.updates) {
+        for (const person of current.people) {
+          const groupId = person.duplicateGroupId ?? person.id;
+          if (update.bubbleId !== person.id && update.bubbleId !== groupId) continue;
+          const existing = latestByGroupId.get(groupId);
+          if (!existing || isMoreRecentIso(existing, update.occurredAt)) {
+            latestByGroupId.set(groupId, update.occurredAt);
+          }
         }
       }
 
@@ -517,13 +530,14 @@ export async function applyInteractionUpdate(params: {
         ...current,
         people: current.people.map((person) => {
           const groupId = person.duplicateGroupId ?? person.id;
-          if (!targetGroupIds.has(groupId)) return person;
-          if (sameCalendarDayInTimeZone(person.lastInteraction, params.occurredAt, params.timeZone)) return person;
-          if (!isMoreRecentIso(person.lastInteraction, params.occurredAt)) return person;
+          const occurredAt = latestByGroupId.get(groupId);
+          if (!occurredAt) return person;
+          if (sameCalendarDayInTimeZone(person.lastInteraction, occurredAt, params.timeZone)) return person;
+          if (!isMoreRecentIso(person.lastInteraction, occurredAt)) return person;
           updatedCount += 1;
           return {
             ...person,
-            lastInteraction: params.occurredAt,
+            lastInteraction: occurredAt,
             interactionCount: (typeof person.interactionCount === 'number' ? person.interactionCount : 0) + 1,
           };
         }),
@@ -537,7 +551,13 @@ export async function applyInteractionUpdate(params: {
     };
   }
 
-  const uniqueIds = dedupeIds(params.bubbleIds);
+  const validUpdates = params.updates
+    .map((update) => ({
+      bubbleId: update.bubbleId.trim(),
+      occurredAt: update.occurredAt,
+    }))
+    .filter((update) => update.bubbleId.length > 0 && Number.isFinite(Date.parse(update.occurredAt)));
+  const uniqueIds = dedupeIds(validUpdates.map((update) => update.bubbleId));
   const sql = await getHostedSql();
   return sql.begin(async (tx) => {
     await ensureNormalizedStateInitialized(tx);
@@ -574,6 +594,18 @@ export async function applyInteractionUpdate(params: {
       };
     }
 
+    const latestByGroupId = new Map<string, string>();
+    for (const update of validUpdates) {
+      for (const row of targetRows) {
+        const groupId = row.duplicate_group_id ?? row.id;
+        if (update.bubbleId !== row.id && update.bubbleId !== groupId) continue;
+        const existing = latestByGroupId.get(groupId);
+        if (!existing || isMoreRecentIso(existing, update.occurredAt)) {
+          latestByGroupId.set(groupId, update.occurredAt);
+        }
+      }
+    }
+
     const rowsToConsider = await tx<PersonRow[]>`
       select *
       from ${tx(HOSTED_TABLES.people)}
@@ -582,10 +614,14 @@ export async function applyInteractionUpdate(params: {
       order by list_order asc, id asc
     `;
 
-    const rowsToUpdate = rowsToConsider.filter((row) => {
+    const rowsToUpdate = rowsToConsider.flatMap((row) => {
+      const groupId = row.duplicate_group_id ?? row.id;
+      const occurredAt = latestByGroupId.get(groupId);
+      if (!occurredAt) return [];
       const currentIso = toIsoString(row.last_interaction);
-      if (sameCalendarDayInTimeZone(currentIso, params.occurredAt, params.timeZone)) return false;
-      return isMoreRecentIso(currentIso, params.occurredAt);
+      if (sameCalendarDayInTimeZone(currentIso, occurredAt, params.timeZone)) return [];
+      if (!isMoreRecentIso(currentIso, occurredAt)) return [];
+      return [{ row, occurredAt }];
     });
 
     if (rowsToUpdate.length === 0) {
@@ -599,10 +635,10 @@ export async function applyInteractionUpdate(params: {
     const nextVersion = meta.version + 1;
     const updatedAt = new Date().toISOString();
 
-    for (const row of rowsToUpdate) {
+    for (const { row, occurredAt } of rowsToUpdate) {
       await tx`
         update ${tx(HOSTED_TABLES.people)}
-        set last_interaction = ${params.occurredAt},
+        set last_interaction = ${occurredAt},
             interaction_count = ${Math.max(0, Number(row.interaction_count ?? 0)) + 1},
             interaction_updated_version = ${nextVersion},
             updated_version = ${nextVersion},

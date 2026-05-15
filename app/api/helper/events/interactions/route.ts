@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { applyInteractionUpdate } from '@/lib/server/appState';
+import { applyInteractionUpdate, applyInteractionUpdates } from '@/lib/server/appState';
 import { authenticateHelperRequest } from '@/lib/server/helperAuth';
 
 const interactionSchema = z.object({
@@ -41,28 +41,10 @@ export async function POST(request: NextRequest) {
   let updatedAt = new Date().toISOString();
 
   if (batchParsed.success) {
-    const timeZone = batchParsed.data.timeZone;
-    const grouped = new Map<string, Set<string>>();
-    for (const update of batchParsed.data.updates) {
-      const existing = grouped.get(update.occurredAt);
-      if (existing) {
-        existing.add(update.bubbleId);
-      } else {
-        grouped.set(update.occurredAt, new Set([update.bubbleId]));
-      }
-    }
-
-    const ordered = Array.from(grouped.entries()).sort(([lhs], [rhs]) => lhs.localeCompare(rhs));
-    for (const [occurredAtValue, bubbleIdSet] of ordered) {
-      const result = await applyInteractionUpdate({
-        bubbleIds: Array.from(bubbleIdSet),
-        occurredAt: occurredAtValue,
-        timeZone,
-      });
-      updatedCount += result.updatedCount;
-      version = result.version;
-      updatedAt = result.updatedAt;
-    }
+    const result = await applyInteractionUpdates(batchParsed.data);
+    updatedCount = result.updatedCount;
+    version = result.version;
+    updatedAt = result.updatedAt;
   } else if (singleParsed?.success) {
     const singleData = singleParsed.data;
     const result = await applyInteractionUpdate({

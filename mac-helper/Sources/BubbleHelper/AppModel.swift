@@ -570,16 +570,14 @@ final class AppModel: ObservableObject {
       )
       let updatesToSend = mergeInteractionUpdates(interactionUpdates + recentInteractionUpdates)
 
-      let updateResponse: BubbleInteractionUpdateResponse?
+      let updatedCount: Int
       if updatesToSend.isEmpty {
-        updateResponse = nil
+        updatedCount = 0
       } else {
-        updateResponse = try await apiClient.sendInteractionUpdates(
+        updatedCount = try await sendInteractionUpdatesInChunks(
           baseURL: baseURL,
           helperToken: helperToken,
-          updates: updatesToSend.map { update in
-            BubbleInteractionUpdate(bubbleID: update.bubbleID, occurredAt: update.occurredAt)
-          },
+          updates: updatesToSend,
           timeZone: timeZone.identifier
         )
       }
@@ -601,7 +599,7 @@ final class AppModel: ObservableObject {
           detail: syncCompletionDetail(
             manual: manual,
             sentCount: updatesToSend.count,
-            updatedCount: updateResponse?.updatedCount ?? 0
+            updatedCount: updatedCount
           )
         )
       } else {
@@ -610,7 +608,7 @@ final class AppModel: ObservableObject {
           detail: syncCompletionDetail(
             manual: manual,
             sentCount: updatesToSend.count,
-            updatedCount: updateResponse?.updatedCount ?? 0
+            updatedCount: updatedCount
           )
         )
       }
@@ -757,6 +755,34 @@ final class AppModel: ObservableObject {
       }
       return lhs.bubbleID < rhs.bubbleID
     }
+  }
+
+  private func sendInteractionUpdatesInChunks(
+    baseURL: String,
+    helperToken: String,
+    updates: [PreparedInteractionUpdate],
+    timeZone: String
+  ) async throws -> Int {
+    let chunkSize = 10
+    var updatedCount = 0
+    var startIndex = 0
+
+    while startIndex < updates.count {
+      let endIndex = min(startIndex + chunkSize, updates.count)
+      let chunk = Array(updates[startIndex ..< endIndex])
+      let response = try await apiClient.sendInteractionUpdates(
+        baseURL: baseURL,
+        helperToken: helperToken,
+        updates: chunk.map { update in
+          BubbleInteractionUpdate(bubbleID: update.bubbleID, occurredAt: update.occurredAt)
+        },
+        timeZone: timeZone
+      )
+      updatedCount += response.updatedCount
+      startIndex = endIndex
+    }
+
+    return updatedCount
   }
 
   private func syncCompletionDetail(manual: Bool, sentCount: Int, updatedCount: Int) -> String {
