@@ -1,5 +1,11 @@
 import Foundation
 
+private struct PreparedInteractionUpdate {
+  let bubbleID: String
+  let occurredAt: Date
+  let dayKey: String
+}
+
 @MainActor
 final class AppModel: ObservableObject {
   @Published var configuration: HelperConfiguration
@@ -139,13 +145,11 @@ final class AppModel: ObservableObject {
   func saveSettings(
     baseURL: String,
     tokenInput: String,
-    monitoringEnabled: Bool,
-    pollIntervalSeconds: Double
+    automaticDailySyncEnabled: Bool
   ) async {
     let nextConfiguration = HelperConfiguration(
       baseURL: normalizeBubbleBaseURL(baseURL),
-      monitoringEnabled: monitoringEnabled,
-      pollIntervalSeconds: max(10, pollIntervalSeconds)
+      automaticDailySyncEnabled: automaticDailySyncEnabled
     )
     configuration = nextConfiguration
     configurationStore.save(nextConfiguration)
@@ -162,7 +166,7 @@ final class AppModel: ObservableObject {
     await refreshStoredHelperTokenState()
     await refreshPermissions()
     await refreshBubbleCatalog(showErrors: true)
-    restartMonitoringLoop()
+    restartAutomaticSyncSchedule()
   }
 
   func clearSavedHelperToken() async {
@@ -213,12 +217,17 @@ final class AppModel: ObservableObject {
       let response = try await apiClient.fetchBootstrap(baseURL: baseURL, helperToken: helperToken)
       bootstrap = response
       syncSelectionsFromBootstrap()
-      if runtimeState == .starting || runtimeState == .needsConfiguration {
-        setRuntime(.running, detail: "Bubble Helper is connected to Bubble.")
+      if runtimeState == .starting || runtimeState == .needsConfiguration || runtimeState == .error {
+        if configuration.automaticDailySyncEnabled {
+          setRuntime(.running, detail: "Bubble Helper is connected. Automatic daily sync is enabled.")
+        } else {
+          setRuntime(.paused, detail: "Bubble Helper is connected. Automatic sync is off.")
+        }
       }
     } catch {
       if showErrors {
         recordError(error)
+        setRuntime(.error, detail: "Bubble Helper could not refresh the Bubble catalog.")
       }
     }
   }
@@ -434,10 +443,10 @@ final class AppModel: ObservableObject {
     await performSync(manual: true)
   }
 
-  func toggleMonitoring() {
-    configuration.monitoringEnabled.toggle()
+  func toggleAutomaticDailySync() {
+    configuration.automaticDailySyncEnabled.toggle()
     configurationStore.save(configuration)
-    restartMonitoringLoop()
+    restartAutomaticSyncSchedule()
   }
 
   private func bootstrapApplication() async {
@@ -451,7 +460,7 @@ final class AppModel: ObservableObject {
     await refreshStoredHelperTokenState()
     await refreshPermissions()
     await refreshBubbleCatalog(showErrors: false)
-    restartMonitoringLoop()
+    restartAutomaticSyncSchedule()
   }
 
   private func refreshStoredHelperTokenState() async {
@@ -476,25 +485,27 @@ final class AppModel: ObservableObject {
     }
   }
 
-  private func restartMonitoringLoop() {
+  private func restartAutomaticSyncSchedule() {
     monitorTask?.cancel()
-
-    guard configuration.monitoringEnabled else {
-      setRuntime(.paused, detail: "Realtime syncing is paused.")
-      return
-    }
 
     guard configuredBaseURL() != nil, hasStoredHelperToken else {
       setRuntime(.needsConfiguration, detail: "Set your Bubble URL and helper token in Settings.")
       return
     }
 
+    guard configuration.automaticDailySyncEnabled else {
+      setRuntime(.paused, detail: "Automatic sync is off. Use Sync Now whenever you want to refresh.")
+      return
+    }
+
+    if runtimeState != .error {
+      setRuntime(.running, detail: "Automatic daily sync is enabled. Bubble Helper will sync again at midnight.")
+    }
+
     monitorTask = Task { [weak self] in
       guard let self else { return }
-      await self.performSync(manual: false)
-
       while !Task.isCancelled {
-        let interval = max(10, self.configuration.pollIntervalSeconds)
+        let interval = secondsUntilNextLocalMidnight()
         try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
         if Task.isCancelled {
           return
@@ -509,8 +520,8 @@ final class AppModel: ObservableObject {
       return
     }
 
-    guard manual || configuration.monitoringEnabled else {
-      setRuntime(.paused, detail: "Realtime syncing is paused.")
+    guard manual || configuration.automaticDailySyncEnabled else {
+      setRuntime(.paused, detail: "Automatic sync is off. Use Sync Now whenever you want to refresh.")
       return
     }
 
@@ -520,7 +531,7 @@ final class AppModel: ObservableObject {
     }
 
     syncInFlight = true
-    setRuntime(.syncing, detail: manual ? "Checking Messages now…" : "Watching Messages for new activity…")
+    setRuntime(.syncing, detail: manual ? "Checking Messages now…" : "Running the daily automatic sync…")
     defer {
       syncInFlight = false
     }
@@ -533,26 +544,40 @@ final class AppModel: ObservableObject {
 
     do {
       var nextState = try await localStateStore.loadState()
-      let events = try await messagesDatabase.fetchEvents(afterRowID: nextState.lastProcessedMessageRowID, limit: 250)
+      let events = try await messagesDatabase.fetchEvents(afterRowID: nextState.lastProcessedMessageRowID, limit: 500)
+      let timeZone = TimeZone.current
+      let interactionUpdates = try await prepareInteractionUpdates(from: events, state: nextState, timeZone: timeZone)
+
+      if !interactionUpdates.isEmpty {
+        try await apiClient.sendInteractionUpdates(
+          baseURL: baseURL,
+          helperToken: helperToken,
+          updates: interactionUpdates.map { update in
+            BubbleInteractionUpdate(bubbleID: update.bubbleID, occurredAt: update.occurredAt)
+          },
+          timeZone: timeZone.identifier
+        )
+      }
 
       for event in events {
-        let bubbleIDs = try await bubbleIDs(for: event, state: nextState)
-        if !bubbleIDs.isEmpty {
-          try await apiClient.sendInteractionUpdate(
-            baseURL: baseURL,
-            helperToken: helperToken,
-            bubbleIDs: bubbleIDs,
-            occurredAt: event.occurredAt,
-            timeZone: TimeZone.current.identifier
-          )
-        }
         nextState.lastProcessedMessageRowID = max(nextState.lastProcessedMessageRowID, event.rowID)
       }
+      for update in interactionUpdates {
+        nextState.lastSyncedInteractionDays[update.bubbleID] = update.dayKey
+      }
+      pruneInteractionDayCache(&nextState, relativeTo: Date(), timeZone: timeZone)
 
       nextState.lastSyncAt = Date()
       try await localStateStore.saveState(nextState)
       localState = nextState
-      setRuntime(.running, detail: manual ? "Bubble Helper is up to date." : "Realtime sync running.")
+      if configuration.automaticDailySyncEnabled {
+        setRuntime(
+          .running,
+          detail: manual ? "Bubble Helper is up to date. Automatic sync will run again at midnight." : "Automatic daily sync is enabled."
+        )
+      } else {
+        setRuntime(.paused, detail: "Automatic sync is off. Last manual sync completed.")
+      }
     } catch {
       recordError(error)
       setRuntime(.error, detail: "Bubble Helper hit a sync error.")
@@ -590,6 +615,52 @@ final class AppModel: ObservableObject {
     }
 
     return bubbleIDs.sorted()
+  }
+
+  private func prepareInteractionUpdates(
+    from events: [MessageEvent],
+    state: LocalHelperState,
+    timeZone: TimeZone
+  ) async throws -> [PreparedInteractionUpdate] {
+    var latestByBubbleAndDay: [String: PreparedInteractionUpdate] = [:]
+
+    for event in events {
+      let bubbleIDs = try await bubbleIDs(for: event, state: state)
+      if bubbleIDs.isEmpty {
+        continue
+      }
+
+      let dayKey = calendarDayKey(for: event.occurredAt, timeZone: timeZone)
+      for bubbleID in bubbleIDs {
+        if state.lastSyncedInteractionDays[bubbleID] == dayKey {
+          continue
+        }
+
+        let cacheKey = "\(bubbleID)|\(dayKey)"
+        if let existing = latestByBubbleAndDay[cacheKey] {
+          if event.occurredAt > existing.occurredAt {
+            latestByBubbleAndDay[cacheKey] = PreparedInteractionUpdate(
+              bubbleID: bubbleID,
+              occurredAt: event.occurredAt,
+              dayKey: dayKey
+            )
+          }
+        } else {
+          latestByBubbleAndDay[cacheKey] = PreparedInteractionUpdate(
+            bubbleID: bubbleID,
+            occurredAt: event.occurredAt,
+            dayKey: dayKey
+          )
+        }
+      }
+    }
+
+    return latestByBubbleAndDay.values.sorted { lhs, rhs in
+      if lhs.occurredAt != rhs.occurredAt {
+        return lhs.occurredAt < rhs.occurredAt
+      }
+      return lhs.bubbleID < rhs.bubbleID
+    }
   }
 
   private func identityHash(forHandle handle: String) async throws -> String {
@@ -780,5 +851,31 @@ final class AppModel: ObservableObject {
 
   private func recordError(_ error: Error) {
     lastErrorMessage = error.localizedDescription
+  }
+
+  private func secondsUntilNextLocalMidnight() -> Double {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .current
+    let now = Date()
+    let startOfToday = calendar.startOfDay(for: now)
+    guard let nextMidnight = calendar.date(byAdding: .day, value: 1, to: startOfToday) else {
+      return 60 * 60 * 24
+    }
+    return max(1, nextMidnight.timeIntervalSince(now))
+  }
+
+  private func pruneInteractionDayCache(
+    _ state: inout LocalHelperState,
+    relativeTo now: Date,
+    timeZone: TimeZone,
+    keepingDays: Int = 14
+  ) {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let oldestAllowed = calendar.date(byAdding: .day, value: -keepingDays, to: now) ?? now
+    let oldestDayKey = calendarDayKey(for: oldestAllowed, timeZone: timeZone)
+    state.lastSyncedInteractionDays = state.lastSyncedInteractionDays.filter { _, dayKey in
+      dayKey >= oldestDayKey
+    }
   }
 }

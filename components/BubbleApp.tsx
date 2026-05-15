@@ -19,12 +19,18 @@ import { VIEWPORT_PAD_LEFT } from '../lib/utils';
 import { AccountMenu } from './ui/AccountMenu';
 import { HelperAccessModal } from './ui/HelperAccessModal';
 import { LegacyDataModal } from './ui/modals/LegacyDataModal';
-import { RemoteStateDelta, RemoteStateSnapshot, SyncStatus, applyRemoteStateDelta, mergeExportSchemas, stateSignature } from '@/lib/cloud';
+import {
+  RemoteStateDelta,
+  RemoteStateSnapshot,
+  SyncStatus,
+  applyRemoteStateDelta,
+  cloudBaseStorageKey,
+  mergeExportSchemas,
+  stateSignature,
+} from '@/lib/cloud';
 import { cloneExportSchema } from '@/lib/exportSchema';
 
 const SYNC_REQUEST_TIMEOUT_MS = 15_000;
-const FOREGROUND_SYNC_INTERVAL_MS = 15_000;
-const BACKGROUND_SYNC_INTERVAL_MS = 5 * 60_000;
 
 async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = SYNC_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -38,6 +44,12 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ti
   } finally {
     clearTimeout(timer);
   }
+}
+
+function msUntilNextLocalMidnight() {
+  const next = new Date();
+  next.setHours(24, 0, 0, 0);
+  return Math.max(1_000, next.getTime() - Date.now());
 }
 
 type Props = {
@@ -68,14 +80,37 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('initializing');
   const [helperAccessOpen, setHelperAccessOpen] = useState(false);
   const [legacyDataOpen, setLegacyDataOpen] = useState(false);
+  const cloudBaseKey = useMemo(() => cloudBaseStorageKey(username), [username]);
 
   const baseStateRef = useRef<ExportSchema>(cloneExportSchema(initialSnapshot.state));
   const baseVersionRef = useRef(initialSnapshot.version);
   const applyingRemoteRef = useRef(false);
   const saveInFlightRef = useRef(false);
   const queuedSaveRef = useRef(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasAppliedInitialRemoteRef = useRef(false);
+
+  const loadPersistedBaseSnapshot = useCallback(() => {
+    try {
+      const raw = window.localStorage.getItem(cloudBaseKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as RemoteStateSnapshot | null;
+      if (!parsed?.state || typeof parsed.version !== 'number' || typeof parsed.updatedAt !== 'string') {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }, [cloudBaseKey]);
+
+  const persistBaseSnapshot = useCallback(
+    (snapshot: RemoteStateSnapshot) => {
+      try {
+        window.localStorage.setItem(cloudBaseKey, JSON.stringify(snapshot));
+      } catch {}
+    },
+    [cloudBaseKey]
+  );
 
   // Wait for Zustand rehydration to avoid flashing the default category
   useEffect(() => {
@@ -100,17 +135,26 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
 
   useEffect(() => {
     if (!hydrated || hasAppliedInitialRemoteRef.current) return;
+    const localState = exportData();
+    const persistedBase = loadPersistedBaseSnapshot();
+    const localDirty =
+      !!persistedBase && stateSignature(localState) !== stateSignature(persistedBase.state);
+    const nextState = localDirty
+      ? mergeExportSchemas(persistedBase.state, localState, initialSnapshot.state)
+      : initialSnapshot.state;
+
     applyingRemoteRef.current = true;
-    importData(initialSnapshot.state);
+    importData(nextState);
     baseStateRef.current = cloneExportSchema(initialSnapshot.state);
     baseVersionRef.current = initialSnapshot.version;
+    persistBaseSnapshot(initialSnapshot);
     hasAppliedInitialRemoteRef.current = true;
     setRemoteReady(true);
-    setSyncStatus('synced');
+    setSyncStatus(localDirty ? 'pending' : 'synced');
     queueMicrotask(() => {
       applyingRemoteRef.current = false;
     });
-  }, [hydrated, importData, initialSnapshot]);
+  }, [exportData, hydrated, importData, initialSnapshot, loadPersistedBaseSnapshot, persistBaseSnapshot]);
 
   // Play wand emission on initial load and every category switch, after hydration
   useEffect(() => {
@@ -232,6 +276,11 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
         importData(mergedState);
         baseStateRef.current = cloneExportSchema(payload.state);
         baseVersionRef.current = payload.version;
+        persistBaseSnapshot({
+          version: payload.version,
+          updatedAt: payload.updatedAt,
+          state: payload.state,
+        });
         setSyncStatus('conflict');
         queueMicrotask(() => {
           applyingRemoteRef.current = false;
@@ -247,6 +296,11 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
 
       baseStateRef.current = cloneExportSchema(payload.state);
       baseVersionRef.current = payload.version;
+      persistBaseSnapshot({
+        version: payload.version,
+        updatedAt: payload.updatedAt,
+        state: payload.state,
+      });
       setSyncStatus('synced');
     } catch (error) {
       console.error('Bubble cloud save failed.', error);
@@ -258,7 +312,7 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
         void pushRemoteState();
       }
     }
-  }, [exportData, importData]);
+  }, [exportData, importData, persistBaseSnapshot]);
 
   const pullRemoteState = useCallback(async () => {
     if (saveInFlightRef.current) return;
@@ -322,6 +376,11 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
         importData(resolvedRemoteState);
         baseStateRef.current = cloneExportSchema(resolvedRemoteState);
         baseVersionRef.current = remoteVersion;
+        persistBaseSnapshot({
+          version: remoteVersion,
+          updatedAt: versionPayload.updatedAt,
+          state: resolvedRemoteState,
+        });
         setSyncStatus('synced');
         queueMicrotask(() => {
           applyingRemoteRef.current = false;
@@ -334,6 +393,11 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
       importData(mergedState);
       baseStateRef.current = cloneExportSchema(resolvedRemoteState);
       baseVersionRef.current = remoteVersion;
+      persistBaseSnapshot({
+        version: remoteVersion,
+        updatedAt: versionPayload.updatedAt,
+        state: resolvedRemoteState,
+      });
       setSyncStatus('conflict');
       queueMicrotask(() => {
         applyingRemoteRef.current = false;
@@ -344,7 +408,17 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
       console.error('Bubble cloud refresh failed.', error);
       setSyncStatus((prev) => (prev === 'saving' ? prev : 'error'));
     }
-  }, [exportData, importData, pushRemoteState]);
+  }, [exportData, importData, persistBaseSnapshot, pushRemoteState]);
+
+  const runCloudSyncNow = useCallback(async () => {
+    const localState = exportData();
+    const localDirty = stateSignature(localState) !== stateSignature(baseStateRef.current);
+    if (localDirty) {
+      await pushRemoteState();
+      return;
+    }
+    await pullRemoteState();
+  }, [exportData, pullRemoteState, pushRemoteState]);
 
   useEffect(() => {
     if (!hydrated || !remoteReady || applyingRemoteRef.current) return;
@@ -357,46 +431,28 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
       return;
     }
 
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    setSyncStatus('saving');
-    saveTimerRef.current = setTimeout(() => {
-      void pushRemoteState();
-    }, 700);
-
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, [hydrated, remoteReady, categories, people, labels, systemControls, exportData, pushRemoteState]);
+    setSyncStatus('pending');
+  }, [hydrated, remoteReady, categories, people, labels, systemControls, exportData]);
 
   useEffect(() => {
     if (!hydrated || !remoteReady) return;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
-    const currentInterval = () =>
-      document.visibilityState === 'visible' ? FOREGROUND_SYNC_INTERVAL_MS : BACKGROUND_SYNC_INTERVAL_MS;
-
     const schedule = () => {
       if (cancelled) return;
       timeout = setTimeout(async () => {
-        await pullRemoteState();
+        await runCloudSyncNow();
         schedule();
-      }, currentInterval());
-    };
-
-    const onVisibilityChange = () => {
-      if (timeout) clearTimeout(timeout);
-      schedule();
+      }, msUntilNextLocalMidnight());
     };
 
     schedule();
-    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       cancelled = true;
       if (timeout) clearTimeout(timeout);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [hydrated, remoteReady, pullRemoteState]);
+  }, [hydrated, remoteReady, runCloudSyncNow]);
 
   if (!hydrated || !remoteReady) {
     return (
@@ -462,11 +518,12 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
 
         <div className="fixed top-4 right-4 z-30 flex items-center gap-3">
           <ClockPT />
-          <SyncPill status={syncStatus} />
+          <SyncPill status={syncStatus} onClick={() => void runCloudSyncNow()} />
           <FABAddPerson onClick={() => setShowAdd(true)} />
           <AccountMenu
             username={username}
             syncStatus={syncStatus}
+            onSyncNow={() => void runCloudSyncNow()}
             onOpenHelperAccess={() => setHelperAccessOpen(true)}
             onOpenLegacyData={() => setLegacyDataOpen(true)}
           />
@@ -526,17 +583,21 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
   );
 }
 
-function SyncPill({ status }: { status: SyncStatus }) {
+function SyncPill({ status, onClick }: { status: SyncStatus; onClick: () => void }) {
   const palette =
     status === 'error'
       ? 'border-red-200 bg-red-50/70 text-red-700'
+      : status === 'pending'
+        ? 'border-sky-200 bg-sky-50/80 text-sky-800'
       : status === 'conflict'
         ? 'border-amber-200 bg-amber-50/80 text-amber-800'
         : 'border-white/60 bg-white/60 text-gray-700';
 
   const label =
     status === 'saving'
-      ? 'Cloud Saving'
+      ? 'Cloud Syncing'
+      : status === 'pending'
+        ? 'Sync Pending'
       : status === 'conflict'
         ? 'Cloud Merging'
         : status === 'error'
@@ -546,8 +607,14 @@ function SyncPill({ status }: { status: SyncStatus }) {
             : 'Cloud Starting';
 
   return (
-    <div className={`rounded-xl border px-3 py-2 text-xs font-nav tracking-[0.12em] ${palette}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={status === 'saving'}
+      className={`rounded-xl border px-3 py-2 text-xs font-nav tracking-[0.12em] transition disabled:cursor-not-allowed disabled:opacity-70 ${palette}`}
+      title="Sync Bubble now"
+    >
       {label}
-    </div>
+    </button>
   );
 }

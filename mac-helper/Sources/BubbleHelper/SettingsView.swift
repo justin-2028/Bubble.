@@ -5,8 +5,7 @@ struct SettingsView: View {
 
   @State private var baseURL = ""
   @State private var tokenInput = ""
-  @State private var monitoringEnabled = true
-  @State private var pollIntervalSeconds = 15.0
+  @State private var automaticDailySyncEnabled = true
 
   var body: some View {
     Form {
@@ -20,11 +19,7 @@ struct SettingsView: View {
           text: $tokenInput
         )
 
-        Toggle("Enable realtime syncing", isOn: $monitoringEnabled)
-
-        Stepper(value: $pollIntervalSeconds, in: 10 ... 120, step: 5) {
-          Text("Poll Messages every \(Int(pollIntervalSeconds)) seconds")
-        }
+        Toggle("Automatically sync once a day at midnight", isOn: $automaticDailySyncEnabled)
 
         HStack(spacing: 10) {
           Button("Save Settings") {
@@ -32,10 +27,15 @@ struct SettingsView: View {
               await model.saveSettings(
                 baseURL: baseURL,
                 tokenInput: tokenInput,
-                monitoringEnabled: monitoringEnabled,
-                pollIntervalSeconds: pollIntervalSeconds
+                automaticDailySyncEnabled: automaticDailySyncEnabled
               )
               tokenInput = ""
+            }
+          }
+
+          Button("Sync Now") {
+            Task {
+              await model.runSyncNow()
             }
           }
 
@@ -133,8 +133,7 @@ struct SettingsView: View {
 
   private func syncFromModel() {
     baseURL = model.configuration.baseURL
-    monitoringEnabled = model.configuration.monitoringEnabled
-    pollIntervalSeconds = model.configuration.pollIntervalSeconds
+    automaticDailySyncEnabled = model.configuration.automaticDailySyncEnabled
   }
 
   private func permissionRow(title: String, value: String, detail: String) -> some View {

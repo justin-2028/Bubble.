@@ -4,7 +4,13 @@ import postgres from 'postgres';
 import { svgAvatarDataUrl } from '../avatar';
 import { createDefaultExportData, defaultSystemControls } from '../defaultData';
 import { cloneExportSchema, normalizeExportSchema } from '../exportSchema';
-import { RemoteStateDelta, isMoreRecentIso, sameCalendarDayInTimeZone } from '../cloud';
+import {
+  PersonImageAsset,
+  PersonInteractionDelta,
+  RemoteStateDelta,
+  isMoreRecentIso,
+  sameCalendarDayInTimeZone,
+} from '../cloud';
 import { Category, ExportSchema, Label, Person, SystemControls } from '../types';
 import { uid } from '../utils';
 import { isDatabaseConfigured } from './env';
@@ -59,7 +65,6 @@ type PersonRow = {
   context: string;
   last_interaction: string | Date;
   interaction_count: number;
-  image: string | null;
   y_position: number;
   duplicate_group_id: string | null;
   label_ids: unknown;
@@ -68,6 +73,17 @@ type PersonRow = {
   archived_from_category_id: string | null;
   archived_order: number | null;
   list_order: number;
+  content_updated_version: number;
+  interaction_updated_version: number;
+  image_version: number;
+  updated_version: number;
+  updated_at: string | Date;
+  deleted_at: string | Date | null;
+};
+
+type PersonImageRow = {
+  id: string;
+  image: string;
   updated_version: number;
   updated_at: string | Date;
   deleted_at: string | Date | null;
@@ -134,7 +150,7 @@ export async function getAppStateDelta(sinceVersion: number): Promise<RemoteStat
     return emptyDelta(meta.version, toIsoString(meta.updated_at) ?? new Date().toISOString());
   }
 
-  const [categoryRows, labelRows, peopleRows, controlsRows] = await Promise.all([
+  const [categoryRows, labelRows, peopleRows, imageRows, controlsRows] = await Promise.all([
     sql<CategoryRow[]>`
       select *
       from ${sql(HOSTED_TABLES.categories)}
@@ -153,6 +169,12 @@ export async function getAppStateDelta(sinceVersion: number): Promise<RemoteStat
       where updated_version > ${sinceVersion}
       order by list_order asc, id asc
     `,
+    sql<PersonImageRow[]>`
+      select *
+      from ${sql(HOSTED_TABLES.personImages)}
+      where updated_version > ${sinceVersion}
+      order by id asc
+    `,
     sql<SystemControlsRow[]>`
       select *
       from ${sql(HOSTED_TABLES.systemControls)}
@@ -162,12 +184,16 @@ export async function getAppStateDelta(sinceVersion: number): Promise<RemoteStat
     `,
   ]);
 
+  const peopleDelta = splitPeopleDelta(peopleRows, sinceVersion);
+
   return {
     version: meta.version,
     updatedAt: toIsoString(meta.updated_at) ?? new Date().toISOString(),
     categories: splitCollectionDelta(categoryRows, mapCategoryRow),
     labels: splitCollectionDelta(labelRows, mapLabelRow),
-    people: splitCollectionDelta(peopleRows, mapPersonRow),
+    people: peopleDelta.people,
+    personImages: splitCollectionDelta(imageRows, mapPersonImageRow),
+    personInteractions: peopleDelta.interactions,
     systemControls: controlsRows[0] ? mapSystemControlsRow(controlsRows[0]) : null,
   };
 }
@@ -349,6 +375,7 @@ export async function createHelperBubble(input: {
     const bubbleId = uid('p_');
     const lastInteraction = input.lastInteraction ?? updatedAt;
     const image = input.image?.trim() ? input.image.trim() : svgAvatarDataUrl(fullName);
+    const imageVersion = image ? nextVersion : 0;
 
     await tx`
       insert into ${tx(HOSTED_TABLES.people)} (
@@ -358,7 +385,6 @@ export async function createHelperBubble(input: {
         context,
         last_interaction,
         interaction_count,
-        image,
         y_position,
         duplicate_group_id,
         label_ids,
@@ -367,6 +393,9 @@ export async function createHelperBubble(input: {
         archived_from_category_id,
         archived_order,
         list_order,
+        content_updated_version,
+        interaction_updated_version,
+        image_version,
         updated_version,
         updated_at,
         deleted_at
@@ -377,7 +406,6 @@ export async function createHelperBubble(input: {
         ${input.context?.trim() ?? ''},
         ${lastInteraction},
         ${0},
-        ${image},
         ${50},
         ${null},
         ${tx.json([])},
@@ -387,10 +415,36 @@ export async function createHelperBubble(input: {
         ${null},
         ${listOrderRows[0]?.next_order ?? 0},
         ${nextVersion},
+        ${nextVersion},
+        ${imageVersion},
+        ${nextVersion},
         ${updatedAt},
         ${null}
       )
     `;
+
+    if (image) {
+      await tx`
+        insert into ${tx(HOSTED_TABLES.personImages)} (
+          id,
+          image,
+          updated_version,
+          updated_at,
+          deleted_at
+        ) values (
+          ${bubbleId},
+          ${image},
+          ${nextVersion},
+          ${updatedAt},
+          ${null}
+        )
+        on conflict (id) do update
+        set image = excluded.image,
+            updated_version = excluded.updated_version,
+            updated_at = excluded.updated_at,
+            deleted_at = excluded.deleted_at
+      `;
+    }
 
     await upsertStateMeta(tx, nextVersion, updatedAt);
 
@@ -512,11 +566,12 @@ export async function applyInteractionUpdate(params: {
     const nextVersion = meta.version + 1;
     const updatedAt = new Date().toISOString();
 
-    for (const row of rowsToUpdate) {
+      for (const row of rowsToUpdate) {
       await tx`
         update ${tx(HOSTED_TABLES.people)}
         set last_interaction = ${params.occurredAt},
             interaction_count = ${Math.max(0, Number(row.interaction_count ?? 0)) + 1},
+            interaction_updated_version = ${nextVersion},
             updated_version = ${nextVersion},
             updated_at = ${updatedAt}
         where id = ${row.id}
@@ -547,6 +602,7 @@ async function ensureNormalizedStateInitialized(sql: SqlLike) {
     limit 1
   `;
   if (existingMeta[0]) {
+    await ensureHostedImageBackfill(sql);
     return;
   }
 
@@ -559,10 +615,44 @@ async function ensureNormalizedStateInitialized(sql: SqlLike) {
     }
     throw error;
   });
+  await ensureHostedImageBackfill(sql);
+}
+
+async function ensureHostedImageBackfill(sql: SqlLike) {
+  const rows = await sql<Array<{ id: string; image: string | null; updated_version: number; updated_at: string | Date }>>`
+    select p.id, p.image, p.updated_version, p.updated_at
+    from ${sql(HOSTED_TABLES.people)} p
+    left join ${sql(HOSTED_TABLES.personImages)} i
+      on i.id = p.id
+      and i.deleted_at is null
+    where p.deleted_at is null
+      and coalesce(p.image, '') <> ''
+      and i.id is null
+  `;
+
+  for (const row of rows) {
+    if (!row.image) continue;
+    await sql`
+      insert into ${sql(HOSTED_TABLES.personImages)} (
+        id,
+        image,
+        updated_version,
+        updated_at,
+        deleted_at
+      ) values (
+        ${row.id},
+        ${row.image},
+        ${Number(row.updated_version ?? 0)},
+        ${toIsoString(row.updated_at) ?? new Date().toISOString()},
+        ${null}
+      )
+      on conflict (id) do nothing
+    `;
+  }
 }
 
 async function readHostedAppStateDocument(sql: SqlLike) {
-  const [meta, categories, labels, people, systemControls] = await Promise.all([
+  const [meta, categories, labels, people, personImages, systemControls] = await Promise.all([
     readStateMeta(sql),
     sql<CategoryRow[]>`
       select *
@@ -582,6 +672,11 @@ async function readHostedAppStateDocument(sql: SqlLike) {
       where deleted_at is null
       order by list_order asc, id asc
     `,
+    sql<PersonImageRow[]>`
+      select *
+      from ${sql(HOSTED_TABLES.personImages)}
+      where deleted_at is null
+    `,
     sql<SystemControlsRow[]>`
       select *
       from ${sql(HOSTED_TABLES.systemControls)}
@@ -589,6 +684,8 @@ async function readHostedAppStateDocument(sql: SqlLike) {
       limit 1
     `,
   ]);
+
+  const imageById = new Map(personImages.map((row) => [row.id, row.image] as const));
 
   const doc: AppStateDocument = {
     schemaVersion: 1,
@@ -598,7 +695,7 @@ async function readHostedAppStateDocument(sql: SqlLike) {
       version: 2,
       categories: categories.map(mapCategoryRow),
       labels: labels.map(mapLabelRow),
-      people: people.map(mapPersonRow),
+      people: people.map((row) => mapPersonRowWithImage(row, imageById.get(row.id))),
       systemControls: systemControls[0] ? mapSystemControlsRow(systemControls[0]) : { ...defaultSystemControls },
     },
   };
@@ -810,6 +907,11 @@ async function syncPeople(
       continue;
     }
 
+    const nextImage = normalizeImageValue(person.image);
+    const previousImage = normalizeImageValue(previous?.image);
+    const imageChanged = nextImage !== previousImage;
+    const nextImageVersion = imageChanged || !previous ? nextVersion : 0;
+
     await sql`
       insert into ${sql(HOSTED_TABLES.people)} (
         id,
@@ -827,6 +929,9 @@ async function syncPeople(
         archived_from_category_id,
         archived_order,
         list_order,
+        content_updated_version,
+        interaction_updated_version,
+        image_version,
         updated_version,
         updated_at,
         deleted_at
@@ -837,7 +942,7 @@ async function syncPeople(
         ${person.context ?? ''},
         ${person.lastInteraction},
         ${typeof person.interactionCount === 'number' ? person.interactionCount : 0},
-        ${person.image ?? null},
+        ${null},
         ${person.yPosition},
         ${person.duplicateGroupId ?? null},
         ${sql.json(person.labelIds ?? [])},
@@ -846,6 +951,9 @@ async function syncPeople(
         ${person.archivedFromCategoryId ?? null},
         ${person.archivedOrder ?? null},
         ${index},
+        ${nextVersion},
+        ${nextVersion},
+        ${nextImageVersion},
         ${nextVersion},
         ${updatedAt},
         ${null}
@@ -865,16 +973,66 @@ async function syncPeople(
           archived_from_category_id = excluded.archived_from_category_id,
           archived_order = excluded.archived_order,
           list_order = excluded.list_order,
+          content_updated_version = excluded.content_updated_version,
+          interaction_updated_version = excluded.interaction_updated_version,
+          image_version = case
+            when excluded.image_version = 0 then ${sql(HOSTED_TABLES.people)}.image_version
+            else excluded.image_version
+          end,
           updated_version = excluded.updated_version,
           updated_at = excluded.updated_at,
           deleted_at = excluded.deleted_at
     `;
+
+    if (nextImage) {
+      if (imageChanged || !previous) {
+        await sql`
+          insert into ${sql(HOSTED_TABLES.personImages)} (
+            id,
+            image,
+            updated_version,
+            updated_at,
+            deleted_at
+          ) values (
+            ${person.id},
+            ${nextImage},
+            ${nextVersion},
+            ${updatedAt},
+            ${null}
+          )
+          on conflict (id) do update
+          set image = excluded.image,
+              updated_version = excluded.updated_version,
+              updated_at = excluded.updated_at,
+              deleted_at = excluded.deleted_at
+        `;
+      }
+    } else if (imageChanged || previousImage) {
+      await sql`
+        update ${sql(HOSTED_TABLES.personImages)}
+        set deleted_at = ${updatedAt},
+            updated_version = ${nextVersion},
+            updated_at = ${updatedAt}
+        where id = ${person.id}
+          and deleted_at is null
+      `;
+    }
   }
 
   for (const person of current) {
     if (nextIds.has(person.id)) continue;
     await sql`
       update ${sql(HOSTED_TABLES.people)}
+      set deleted_at = ${updatedAt},
+          content_updated_version = ${nextVersion},
+          interaction_updated_version = ${nextVersion},
+          updated_version = ${nextVersion},
+          updated_at = ${updatedAt}
+      where id = ${person.id}
+        and deleted_at is null
+    `;
+    await sql`
+      update ${sql(HOSTED_TABLES.personImages)}
       set deleted_at = ${updatedAt},
           updated_version = ${nextVersion},
           updated_at = ${updatedAt}
@@ -943,15 +1101,14 @@ function mapLabelRow(row: LabelRow): Label {
   };
 }
 
-function mapPersonRow(row: PersonRow): Person {
-  return {
+function mapPersonRowWithImage(row: PersonRow, image: string | undefined, includeImage = true): Person {
+  const person: Person = {
     id: row.id,
     fullName: row.full_name,
     categoryId: row.category_id,
     context: row.context ?? '',
     lastInteraction: toIsoString(row.last_interaction) ?? new Date().toISOString(),
     interactionCount: Number(row.interaction_count ?? 0),
-    image: row.image ?? undefined,
     yPosition: Number(row.y_position),
     duplicateGroupId: row.duplicate_group_id ?? undefined,
     labelIds: toStringArray(row.label_ids),
@@ -959,6 +1116,26 @@ function mapPersonRow(row: PersonRow): Person {
     archivedAt: toIsoString(row.archived_at),
     archivedFromCategoryId: row.archived_from_category_id ?? undefined,
     archivedOrder: typeof row.archived_order === 'number' ? row.archived_order : undefined,
+  };
+  if (includeImage && typeof image === 'string' && image.length > 0) {
+    person.image = image;
+  }
+  return person;
+}
+
+function mapPersonImageRow(row: PersonImageRow): PersonImageAsset {
+  return {
+    id: row.id,
+    image: row.image,
+    imageVersion: Number(row.updated_version),
+  };
+}
+
+function mapPersonInteractionRow(row: PersonRow): PersonInteractionDelta {
+  return {
+    id: row.id,
+    lastInteraction: toIsoString(row.last_interaction) ?? new Date().toISOString(),
+    interactionCount: Number(row.interaction_count ?? 0),
   };
 }
 
@@ -989,6 +1166,29 @@ function splitCollectionDelta<Row, Model extends { id: string }>(
   return { upserted, deletedIds };
 }
 
+function splitPeopleDelta(rows: PersonRow[], sinceVersion: number) {
+  const people: RemoteStateDelta['people'] = { upserted: [], deletedIds: [] };
+  const interactions: PersonInteractionDelta[] = [];
+
+  for (const row of rows) {
+    if (row.deleted_at) {
+      people.deletedIds.push(row.id);
+      continue;
+    }
+
+    if (Number(row.content_updated_version ?? 0) > sinceVersion) {
+      people.upserted.push(mapPersonRowWithImage(row, undefined, false));
+      continue;
+    }
+
+    if (Number(row.interaction_updated_version ?? 0) > sinceVersion) {
+      interactions.push(mapPersonInteractionRow(row));
+    }
+  }
+
+  return { people, interactions };
+}
+
 function buildFullDelta(state: ExportSchema, version: number, updatedAt: string): RemoteStateDelta {
   return {
     version,
@@ -1002,9 +1202,20 @@ function buildFullDelta(state: ExportSchema, version: number, updatedAt: string)
       deletedIds: [],
     },
     people: {
-      upserted: state.people,
+      upserted: state.people.map(({ image, ...person }) => person),
       deletedIds: [],
     },
+    personImages: {
+      upserted: state.people
+        .filter((person) => typeof person.image === 'string' && person.image.length > 0)
+        .map((person) => ({
+          id: person.id,
+          image: person.image as string,
+          imageVersion: version,
+        })),
+      deletedIds: [],
+    },
+    personInteractions: [],
     systemControls: state.systemControls ?? { ...defaultSystemControls },
   };
 }
@@ -1016,6 +1227,8 @@ function emptyDelta(version: number, updatedAt: string): RemoteStateDelta {
     categories: { upserted: [], deletedIds: [] },
     labels: { upserted: [], deletedIds: [] },
     people: { upserted: [], deletedIds: [] },
+    personImages: { upserted: [], deletedIds: [] },
+    personInteractions: [],
     systemControls: null,
   };
 }
@@ -1065,6 +1278,11 @@ function normalizeAppStateDocument(raw: any): AppStateDocument {
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string');
+}
+
+function normalizeImageValue(value: string | null | undefined) {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function toIsoString(value: string | Date | null | undefined) {

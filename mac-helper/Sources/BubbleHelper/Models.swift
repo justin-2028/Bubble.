@@ -33,13 +33,17 @@ func normalizeBubbleBaseURL(_ rawValue: String) -> String {
 
 struct HelperConfiguration: Codable, Equatable {
   var baseURL: String
-  var monitoringEnabled: Bool
-  var pollIntervalSeconds: Double
+  var automaticDailySyncEnabled: Bool
 
-  init(baseURL: String, monitoringEnabled: Bool, pollIntervalSeconds: Double) {
+  private enum CodingKeys: String, CodingKey {
+    case baseURL
+    case automaticDailySyncEnabled
+    case monitoringEnabled
+  }
+
+  init(baseURL: String, automaticDailySyncEnabled: Bool) {
     self.baseURL = baseURL
-    self.monitoringEnabled = monitoringEnabled
-    self.pollIntervalSeconds = pollIntervalSeconds
+    self.automaticDailySyncEnabled = automaticDailySyncEnabled
   }
 
   init(from decoder: Decoder) throws {
@@ -47,14 +51,21 @@ struct HelperConfiguration: Codable, Equatable {
     baseURL = normalizeBubbleBaseURL(
       try container.decodeIfPresent(String.self, forKey: .baseURL) ?? HelperConfiguration.default.baseURL
     )
-    monitoringEnabled = try container.decodeIfPresent(Bool.self, forKey: .monitoringEnabled) ?? HelperConfiguration.default.monitoringEnabled
-    pollIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .pollIntervalSeconds) ?? HelperConfiguration.default.pollIntervalSeconds
+    automaticDailySyncEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .automaticDailySyncEnabled)
+      ?? container.decodeIfPresent(Bool.self, forKey: .monitoringEnabled)
+      ?? HelperConfiguration.default.automaticDailySyncEnabled
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(baseURL, forKey: .baseURL)
+    try container.encode(automaticDailySyncEnabled, forKey: .automaticDailySyncEnabled)
   }
 
   static let `default` = HelperConfiguration(
     baseURL: "https://www.bubble.garden",
-    monitoringEnabled: true,
-    pollIntervalSeconds: 15
+    automaticDailySyncEnabled: true
   )
 }
 
@@ -80,11 +91,34 @@ struct IgnoredIdentity: Codable, Hashable, Identifiable {
 }
 
 struct LocalHelperState: Codable, Equatable {
-  var schemaVersion: Int = 1
+  var schemaVersion: Int = 2
   var lastProcessedMessageRowID: Int64 = 0
   var lastSyncAt: Date?
   var links: [LocalIdentityLink] = []
   var ignored: [IgnoredIdentity] = []
+  var lastSyncedInteractionDays: [String: String] = [:]
+
+  private enum CodingKeys: String, CodingKey {
+    case schemaVersion
+    case lastProcessedMessageRowID
+    case lastSyncAt
+    case links
+    case ignored
+    case lastSyncedInteractionDays
+  }
+
+  init() {}
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+    lastProcessedMessageRowID = try container.decodeIfPresent(Int64.self, forKey: .lastProcessedMessageRowID) ?? 0
+    lastSyncAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncAt)
+    links = try container.decodeIfPresent([LocalIdentityLink].self, forKey: .links) ?? []
+    ignored = try container.decodeIfPresent([IgnoredIdentity].self, forKey: .ignored) ?? []
+    lastSyncedInteractionDays =
+      try container.decodeIfPresent([String: String].self, forKey: .lastSyncedInteractionDays) ?? [:]
+  }
 }
 
 struct HelperCategorySummary: Codable, Hashable, Identifiable {
@@ -127,6 +161,11 @@ struct CreateBubbleRequest: Encodable {
   let lastInteraction: String?
   let image: String?
   let starred: Bool
+}
+
+struct BubbleInteractionUpdate: Encodable {
+  let bubbleID: String
+  let occurredAt: Date
 }
 
 struct ImportCandidate: Identifiable, Hashable {

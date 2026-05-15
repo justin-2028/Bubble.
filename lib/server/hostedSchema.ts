@@ -7,6 +7,7 @@ export const HOSTED_TABLES = {
   categories: 'bubble_categories',
   labels: 'bubble_labels',
   people: 'bubble_people',
+  personImages: 'bubble_person_images',
   systemControls: 'bubble_system_controls',
   helperTokens: 'bubble_helper_tokens',
 } as const;
@@ -86,14 +87,41 @@ async function actuallyEnsureHostedSchema(sql: postgres.Sql) {
       archived_from_category_id text,
       archived_order integer,
       list_order integer not null,
+      content_updated_version integer not null default 0,
+      interaction_updated_version integer not null default 0,
+      image_version integer not null default 0,
       updated_version integer not null,
       updated_at timestamptz not null,
       deleted_at timestamptz
     )
   `;
   await sql`
+    alter table ${sql(HOSTED_TABLES.people)}
+    add column if not exists content_updated_version integer not null default 0
+  `;
+  await sql`
+    alter table ${sql(HOSTED_TABLES.people)}
+    add column if not exists interaction_updated_version integer not null default 0
+  `;
+  await sql`
+    alter table ${sql(HOSTED_TABLES.people)}
+    add column if not exists image_version integer not null default 0
+  `;
+  await sql`
     create index if not exists bubble_people_updated_version_idx
     on ${sql(HOSTED_TABLES.people)} (updated_version)
+  `;
+  await sql`
+    create index if not exists bubble_people_content_updated_version_idx
+    on ${sql(HOSTED_TABLES.people)} (content_updated_version)
+  `;
+  await sql`
+    create index if not exists bubble_people_interaction_updated_version_idx
+    on ${sql(HOSTED_TABLES.people)} (interaction_updated_version)
+  `;
+  await sql`
+    create index if not exists bubble_people_image_version_idx
+    on ${sql(HOSTED_TABLES.people)} (image_version)
   `;
   await sql`
     create index if not exists bubble_people_category_id_idx
@@ -102,6 +130,36 @@ async function actuallyEnsureHostedSchema(sql: postgres.Sql) {
   await sql`
     create index if not exists bubble_people_duplicate_group_id_idx
     on ${sql(HOSTED_TABLES.people)} (duplicate_group_id)
+  `;
+  await sql`
+    update ${sql(HOSTED_TABLES.people)}
+    set content_updated_version = updated_version
+    where content_updated_version = 0
+  `;
+  await sql`
+    update ${sql(HOSTED_TABLES.people)}
+    set interaction_updated_version = updated_version
+    where interaction_updated_version = 0
+  `;
+  await sql`
+    update ${sql(HOSTED_TABLES.people)}
+    set image_version = updated_version
+    where image_version = 0
+      and coalesce(image, '') <> ''
+  `;
+
+  await sql`
+    create table if not exists ${sql(HOSTED_TABLES.personImages)} (
+      id text primary key,
+      image text not null,
+      updated_version integer not null,
+      updated_at timestamptz not null,
+      deleted_at timestamptz
+    )
+  `;
+  await sql`
+    create index if not exists bubble_person_images_updated_version_idx
+    on ${sql(HOSTED_TABLES.personImages)} (updated_version)
   `;
 
   await sql`
@@ -130,5 +188,9 @@ async function actuallyEnsureHostedSchema(sql: postgres.Sql) {
   await sql`
     create index if not exists bubble_helper_tokens_created_at_idx
     on ${sql(HOSTED_TABLES.helperTokens)} (created_at desc)
+  `;
+  await sql`
+    create index if not exists bubble_helper_tokens_prefix_idx
+    on ${sql(HOSTED_TABLES.helperTokens)} (prefix)
   `;
 }

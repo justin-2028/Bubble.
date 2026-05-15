@@ -56,8 +56,8 @@ struct MenuContentView: View {
         }
       }
 
-      Button(model.configuration.monitoringEnabled ? "Pause Realtime Sync" : "Resume Realtime Sync") {
-        model.toggleMonitoring()
+      Button(model.configuration.automaticDailySyncEnabled ? "Disable Daily Auto Sync" : "Enable Daily Auto Sync") {
+        model.toggleAutomaticDailySync()
       }
 
       Divider()

@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { SyncStatus } from '@/lib/cloud';
+import { cloudBaseStorageKey, SyncStatus } from '@/lib/cloud';
 import { useBubbleStore } from '@/store/useBubbleStore';
 import { GlassButton } from './GlassButton';
 
 type Props = {
   username: string;
   syncStatus: SyncStatus;
+  onSyncNow: () => void;
   onOpenHelperAccess: () => void;
   onOpenLegacyData: () => void;
 };
 
-export function AccountMenu({ username, syncStatus, onOpenHelperAccess, onOpenLegacyData }: Props) {
+export function AccountMenu({ username, syncStatus, onSyncNow, onOpenHelperAccess, onOpenLegacyData }: Props) {
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -37,6 +38,7 @@ export function AccountMenu({ username, syncStatus, onOpenHelperAccess, onOpenLe
       persist?.clearStorage?.();
       try {
         localStorage.removeItem('bubble-store-v1');
+        localStorage.removeItem(cloudBaseStorageKey(username));
         localStorage.removeItem('bubble-file-connected');
       } catch {}
       window.location.href = '/login';
@@ -58,6 +60,16 @@ export function AccountMenu({ username, syncStatus, onOpenHelperAccess, onOpenLe
           </div>
 
           <div className="mt-3 grid gap-2">
+            <GlassButton
+              type="button"
+              className="justify-start"
+              onClick={() => {
+                setOpen(false);
+                onSyncNow();
+              }}
+            >
+              Sync Now
+            </GlassButton>
             <GlassButton
               type="button"
               className="justify-start"
@@ -90,8 +102,10 @@ export function AccountMenu({ username, syncStatus, onOpenHelperAccess, onOpenLe
 
 function syncStatusLabel(status: SyncStatus) {
   switch (status) {
+    case 'pending':
+      return 'Pending';
     case 'saving':
-      return 'Saving';
+      return 'Syncing';
     case 'conflict':
       return 'Merging updates';
     case 'error':

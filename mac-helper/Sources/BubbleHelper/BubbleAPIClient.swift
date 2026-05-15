@@ -57,17 +57,39 @@ actor BubbleAPIClient {
     occurredAt: Date,
     timeZone: String
   ) async throws {
+    try await sendInteractionUpdates(
+      baseURL: baseURL,
+      helperToken: helperToken,
+      updates: bubbleIDs.map { BubbleInteractionUpdate(bubbleID: $0, occurredAt: occurredAt) },
+      timeZone: timeZone
+    )
+  }
+
+  func sendInteractionUpdates(
+    baseURL: String,
+    helperToken: String,
+    updates: [BubbleInteractionUpdate],
+    timeZone: String
+  ) async throws {
     struct RequestBody: Encodable {
-      let bubbleIds: [String]
-      let occurredAt: String
+      struct Update: Encodable {
+        let bubbleId: String
+        let occurredAt: String
+      }
+
+      let updates: [Update]
       let timeZone: String
     }
 
     let encoder = JSONEncoder()
     let body = try encoder.encode(
       RequestBody(
-        bubbleIds: bubbleIDs,
-        occurredAt: iso8601String(occurredAt),
+        updates: updates.map { update in
+          RequestBody.Update(
+            bubbleId: update.bubbleID,
+            occurredAt: iso8601String(update.occurredAt)
+          )
+        },
         timeZone: timeZone
       )
     )

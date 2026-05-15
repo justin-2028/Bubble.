@@ -1,7 +1,7 @@
 import { defaultSystemControls } from './defaultData';
 import { Category, ExportSchema, Label, Person, SystemControls } from './types';
 
-export type SyncStatus = 'initializing' | 'synced' | 'saving' | 'conflict' | 'error';
+export type SyncStatus = 'initializing' | 'pending' | 'synced' | 'saving' | 'conflict' | 'error';
 
 export interface RemoteStateSnapshot {
   version: number;
@@ -9,9 +9,25 @@ export interface RemoteStateSnapshot {
   state: ExportSchema;
 }
 
+export function cloudBaseStorageKey(username: string) {
+  return `bubble-cloud-base-v2:${username}`;
+}
+
 export interface RemoteCollectionDelta<T> {
   upserted: T[];
   deletedIds: string[];
+}
+
+export interface PersonImageAsset {
+  id: string;
+  image: string;
+  imageVersion: number;
+}
+
+export interface PersonInteractionDelta {
+  id: string;
+  lastInteraction: string;
+  interactionCount: number;
 }
 
 export interface RemoteStateDelta {
@@ -20,6 +36,8 @@ export interface RemoteStateDelta {
   categories: RemoteCollectionDelta<Category>;
   labels: RemoteCollectionDelta<Label>;
   people: RemoteCollectionDelta<Person>;
+  personImages: RemoteCollectionDelta<PersonImageAsset>;
+  personInteractions: PersonInteractionDelta[];
   systemControls: SystemControls | null;
 }
 
@@ -90,14 +108,22 @@ export function stateSignature(state: ExportSchema) {
 }
 
 export function applyRemoteStateDelta(base: ExportSchema, delta: RemoteStateDelta): ExportSchema {
-  return {
+  const withCollections = {
     version: typeof base.version === 'number' ? base.version : 2,
     categories: applyCollectionDelta(base.categories, delta.categories, (items) =>
       items.slice().sort((a, b) => a.sortOrder - b.sortOrder)
     ),
     labels: applyCollectionDelta(base.labels ?? [], delta.labels),
-    people: applyCollectionDelta(base.people, delta.people),
+    people: applyPersonCollectionDelta(base.people, delta.people),
     systemControls: delta.systemControls ?? base.systemControls ?? { ...defaultSystemControls },
+  };
+
+  const withInteractions = applyPersonInteractionDelta(withCollections.people, delta.personInteractions);
+  const withImages = applyPersonImageDelta(withInteractions, delta.personImages);
+
+  return {
+    ...withCollections,
+    people: withImages,
   };
 }
 
@@ -162,6 +188,79 @@ function applyCollectionDelta<T extends WithId>(
   }
 
   return finalize ? finalize(next) : next;
+}
+
+function applyPersonCollectionDelta(current: Person[], delta: RemoteCollectionDelta<Person>) {
+  const deleted = new Set(delta.deletedIds);
+  const replacements = new Map(delta.upserted.map((item) => [item.id, item] as const));
+  const seen = new Set<string>();
+  const next: Person[] = [];
+
+  for (const person of current) {
+    if (deleted.has(person.id)) continue;
+    const replacement = replacements.get(person.id);
+    if (replacement) {
+      next.push(
+        typeof replacement.image === 'undefined' && typeof person.image !== 'undefined'
+          ? { ...replacement, image: person.image }
+          : replacement
+      );
+      seen.add(person.id);
+      continue;
+    }
+    next.push(person);
+    seen.add(person.id);
+  }
+
+  for (const person of delta.upserted) {
+    if (deleted.has(person.id) || seen.has(person.id)) continue;
+    next.push(person);
+    seen.add(person.id);
+  }
+
+  return next;
+}
+
+function applyPersonInteractionDelta(current: Person[], delta: PersonInteractionDelta[]) {
+  if (!delta.length) return current;
+  const byId = new Map(delta.map((item) => [item.id, item] as const));
+  return current.map((person) => {
+    const update = byId.get(person.id);
+    if (!update) return person;
+    if (
+      person.lastInteraction === update.lastInteraction &&
+      (typeof person.interactionCount === 'number' ? person.interactionCount : 0) === update.interactionCount
+    ) {
+      return person;
+    }
+    return {
+      ...person,
+      lastInteraction: update.lastInteraction,
+      interactionCount: update.interactionCount,
+    };
+  });
+}
+
+function applyPersonImageDelta(current: Person[], delta: RemoteCollectionDelta<PersonImageAsset>) {
+  if (!delta.upserted.length && !delta.deletedIds.length) return current;
+  const deleted = new Set(delta.deletedIds);
+  const replacements = new Map(delta.upserted.map((item) => [item.id, item.image] as const));
+  return current.map((person) => {
+    if (deleted.has(person.id)) {
+      if (typeof person.image === 'undefined') return person;
+      const next = { ...person };
+      delete next.image;
+      return next;
+    }
+    const image = replacements.get(person.id);
+    if (typeof image === 'undefined' || person.image === image) {
+      return person;
+    }
+    return {
+      ...person,
+      image,
+    };
+  });
 }
 
 function mergeCollection<T extends WithId>(

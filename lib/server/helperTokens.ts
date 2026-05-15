@@ -125,10 +125,12 @@ export async function authenticateHelperToken(token: string) {
   await ensureHelperTokensInitialized(sql);
 
   const tokenHash = hashToken(token);
+  const prefix = token.slice(0, 18);
   const rows = await sql<HelperTokenRow[]>`
     select *
     from ${sql(HOSTED_TABLES.helperTokens)}
     where revoked_at is null
+      and prefix = ${prefix}
   `;
   const match = rows.find((row) => timingSafeEqualHash(row.token_hash, tokenHash));
   if (!match) {
