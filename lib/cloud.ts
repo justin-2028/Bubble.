@@ -1,7 +1,7 @@
 import { defaultSystemControls } from './defaultData';
 import { Category, ExportSchema, Label, Person, SystemControls } from './types';
 
-export type SyncStatus = 'initializing' | 'pending' | 'synced' | 'saving' | 'conflict' | 'error';
+export type SyncStatus = 'initializing' | 'pending' | 'checking' | 'synced' | 'saving' | 'conflict' | 'error';
 
 export interface RemoteStateSnapshot {
   version: number;

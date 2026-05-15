@@ -89,9 +89,22 @@ func initials(from value: String) -> String {
 
 func relativeDateDescription(_ date: Date?) -> String {
   guard let date else { return "Not seen recently" }
-  let formatter = RelativeDateTimeFormatter()
+  let elapsedSeconds = max(0, Int(Date().timeIntervalSince(date)))
+  if elapsedSeconds < 5 {
+    return "just now"
+  }
+
+  let formatter = DateComponentsFormatter()
+  formatter.allowedUnits = elapsedSeconds >= 86_400
+    ? [.day]
+    : elapsedSeconds >= 3_600
+      ? [.hour, .minute]
+      : elapsedSeconds >= 60
+        ? [.minute]
+        : [.second]
+  formatter.maximumUnitCount = 1
   formatter.unitsStyle = .full
-  return formatter.localizedString(for: date, relativeTo: Date())
+  return "\(formatter.string(from: TimeInterval(elapsedSeconds)) ?? "recently") ago"
 }
 
 func calendarDayKey(for date: Date, timeZone: TimeZone) -> String {

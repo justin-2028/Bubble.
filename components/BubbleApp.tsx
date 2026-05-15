@@ -57,6 +57,11 @@ type Props = {
   initialSnapshot: RemoteStateSnapshot;
 };
 
+type RemoteVersionSnapshot = {
+  version: number;
+  updatedAt: string;
+};
+
 export function BubbleApp({ username, initialSnapshot }: Props) {
   const { categories, people, currentCategoryId } = useBubbleStore();
   const labels = useBubbleStore((s) => s.labels);
@@ -111,6 +116,33 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
     },
     [cloudBaseKey]
   );
+
+  const fetchRemoteVersion = useCallback(async (): Promise<RemoteVersionSnapshot | null> => {
+    const versionResponse = await fetchWithTimeout('/api/state/version', {
+      cache: 'no-store',
+    });
+    if (versionResponse.status === 401) {
+      window.location.href = '/login';
+      return null;
+    }
+    if (!versionResponse.ok) {
+      throw new Error('Could not check Bubble cloud version.');
+    }
+
+    const versionPayload = await versionResponse.json().catch(() => null);
+    if (
+      !versionPayload ||
+      typeof versionPayload.version !== 'number' ||
+      typeof versionPayload.updatedAt !== 'string'
+    ) {
+      throw new Error('Bubble cloud returned an invalid version response.');
+    }
+
+    return {
+      version: versionPayload.version,
+      updatedAt: versionPayload.updatedAt,
+    };
+  }, []);
 
   // Wait for Zustand rehydration to avoid flashing the default category
   useEffect(() => {
@@ -314,22 +346,16 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
     }
   }, [exportData, importData, persistBaseSnapshot]);
 
-  const pullRemoteState = useCallback(async () => {
+  const pullRemoteState = useCallback(async (knownVersion?: RemoteVersionSnapshot | null) => {
     if (saveInFlightRef.current) return;
 
     try {
-      const versionResponse = await fetchWithTimeout('/api/state/version', {
-        cache: 'no-store',
-      });
-      if (versionResponse.status === 401) {
-        window.location.href = '/login';
+      const versionPayload = knownVersion ?? (await fetchRemoteVersion());
+      if (!versionPayload) return;
+      if (versionPayload.version === baseVersionRef.current) {
+        setSyncStatus('synced');
         return;
       }
-      if (!versionResponse.ok) return;
-
-      const versionPayload = await versionResponse.json().catch(() => null);
-      if (!versionPayload || typeof versionPayload.version !== 'number') return;
-      if (versionPayload.version === baseVersionRef.current) return;
 
       const deltaResponse = await fetchWithTimeout(`/api/state/delta?sinceVersion=${baseVersionRef.current}`, {
         cache: 'no-store',
@@ -408,17 +434,34 @@ export function BubbleApp({ username, initialSnapshot }: Props) {
       console.error('Bubble cloud refresh failed.', error);
       setSyncStatus((prev) => (prev === 'saving' ? prev : 'error'));
     }
-  }, [exportData, importData, persistBaseSnapshot, pushRemoteState]);
+  }, [exportData, fetchRemoteVersion, importData, persistBaseSnapshot, pushRemoteState]);
 
   const runCloudSyncNow = useCallback(async () => {
-    const localState = exportData();
-    const localDirty = stateSignature(localState) !== stateSignature(baseStateRef.current);
-    if (localDirty) {
-      await pushRemoteState();
-      return;
+    if (saveInFlightRef.current) return;
+    setSyncStatus('checking');
+
+    try {
+      const versionPayload = await fetchRemoteVersion();
+      if (!versionPayload) return;
+
+      if (versionPayload.version !== baseVersionRef.current) {
+        await pullRemoteState(versionPayload);
+        return;
+      }
+
+      const localState = exportData();
+      const localDirty = stateSignature(localState) !== stateSignature(baseStateRef.current);
+      if (localDirty) {
+        await pushRemoteState();
+        return;
+      }
+
+      setSyncStatus('synced');
+    } catch (error) {
+      console.error('Bubble cloud sync failed.', error);
+      setSyncStatus('error');
     }
-    await pullRemoteState();
-  }, [exportData, pullRemoteState, pushRemoteState]);
+  }, [exportData, fetchRemoteVersion, pullRemoteState, pushRemoteState]);
 
   useEffect(() => {
     if (!hydrated || !remoteReady || applyingRemoteRef.current) return;
@@ -587,6 +630,8 @@ function SyncPill({ status, onClick }: { status: SyncStatus; onClick: () => void
   const palette =
     status === 'error'
       ? 'border-red-200 bg-red-50/70 text-red-700'
+      : status === 'checking'
+        ? 'border-sky-200 bg-sky-50/80 text-sky-800'
       : status === 'pending'
         ? 'border-sky-200 bg-sky-50/80 text-sky-800'
       : status === 'conflict'
@@ -596,6 +641,8 @@ function SyncPill({ status, onClick }: { status: SyncStatus; onClick: () => void
   const label =
     status === 'saving'
       ? 'Cloud Syncing'
+      : status === 'checking'
+        ? 'Cloud Checking'
       : status === 'pending'
         ? 'Sync Pending'
       : status === 'conflict'
@@ -603,7 +650,7 @@ function SyncPill({ status, onClick }: { status: SyncStatus; onClick: () => void
         : status === 'error'
           ? 'Cloud Error'
           : status === 'synced'
-            ? 'Cloud Synced'
+            ? 'Sync Now'
             : 'Cloud Starting';
 
   return (

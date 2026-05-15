@@ -104,6 +104,8 @@ function syncStatusLabel(status: SyncStatus) {
   switch (status) {
     case 'pending':
       return 'Pending';
+    case 'checking':
+      return 'Checking';
     case 'saving':
       return 'Syncing';
     case 'conflict':
@@ -111,7 +113,7 @@ function syncStatusLabel(status: SyncStatus) {
     case 'error':
       return 'Error';
     case 'synced':
-      return 'Synced';
+      return 'Synced after last sync';
     default:
       return 'Starting';
   }
