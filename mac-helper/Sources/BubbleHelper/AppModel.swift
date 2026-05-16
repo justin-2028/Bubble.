@@ -87,11 +87,11 @@ final class AppModel: ObservableObject {
   }
 
   var linkedCount: Int {
-    localState.links.count
+    Set(localState.links.map(\.bubbleId)).count
   }
 
-  var ignoredCount: Int {
-    localState.ignored.count
+  var identityLinkCount: Int {
+    localState.links.count
   }
 
   var statusTitle: String {
@@ -133,11 +133,9 @@ final class AppModel: ObservableObject {
   }
 
   func candidateStatus(for candidate: ImportCandidate) -> CandidateStatus {
-    if let link = localState.links.first(where: { $0.identityHash == candidate.identityHash }) {
+    let candidateIdentityHashes = Set(candidate.identityHashes)
+    if let link = localState.links.first(where: { candidateIdentityHashes.contains($0.identityHash) }) {
       return .linked(link)
-    }
-    if let ignored = localState.ignored.first(where: { $0.identityHash == candidate.identityHash }) {
-      return .ignored(ignored)
     }
     return .unlinked
   }
@@ -325,14 +323,11 @@ final class AppModel: ObservableObject {
       )
 
       var nextState = localState
-      upsertLink(
+      upsertLinks(
         in: &nextState,
-        identityHash: candidate.identityHash,
+        for: candidate,
         bubbleID: response.bubble.id,
-        bubbleName: response.bubble.fullName,
-        displayName: candidate.displayName,
-        maskedHandle: candidate.matchingHandles.first.map(maskedHandle),
-        source: candidate.sourceLabel
+        bubbleName: response.bubble.fullName
       )
       try await localStateStore.saveState(nextState)
       localState = nextState
@@ -351,14 +346,11 @@ final class AppModel: ObservableObject {
 
     do {
       var nextState = localState
-      upsertLink(
+      upsertLinks(
         in: &nextState,
-        identityHash: candidate.identityHash,
+        for: candidate,
         bubbleID: bubble.id,
-        bubbleName: bubble.fullName,
-        displayName: candidate.displayName,
-        maskedHandle: candidate.matchingHandles.first.map(maskedHandle),
-        source: candidate.sourceLabel
+        bubbleName: bubble.fullName
       )
       try await localStateStore.saveState(nextState)
       localState = nextState
@@ -394,54 +386,13 @@ final class AppModel: ObservableObject {
     }
   }
 
-  func ignoreSelection() async {
-    guard let candidate = selectedCandidate else { return }
-
-    do {
-      var nextState = localState
-      nextState.links.removeAll { $0.identityHash == candidate.identityHash }
-      if let existing = nextState.ignored.firstIndex(where: { $0.identityHash == candidate.identityHash }) {
-        nextState.ignored[existing].displayName = candidate.displayName
-        nextState.ignored[existing].maskedHandle = candidate.matchingHandles.first.map(maskedHandle)
-        nextState.ignored[existing].updatedAt = Date()
-      } else {
-        nextState.ignored.append(
-          IgnoredIdentity(
-            identityHash: candidate.identityHash,
-            displayName: candidate.displayName,
-            maskedHandle: candidate.matchingHandles.first.map(maskedHandle),
-            updatedAt: Date()
-          )
-        )
-      }
-      try await localStateStore.saveState(nextState)
-      localState = nextState
-      importFeedbackMessage = "Ignored \(candidate.displayName) for now."
-    } catch {
-      recordError(error)
-    }
-  }
-
-  func resumeSelection() async {
-    guard let candidate = selectedCandidate else { return }
-
-    do {
-      var nextState = localState
-      nextState.ignored.removeAll { $0.identityHash == candidate.identityHash }
-      try await localStateStore.saveState(nextState)
-      localState = nextState
-      importFeedbackMessage = "Suggestions resumed for \(candidate.displayName)."
-    } catch {
-      recordError(error)
-    }
-  }
-
   func unlinkSelection() async {
     guard let candidate = selectedCandidate else { return }
 
     do {
       var nextState = localState
-      nextState.links.removeAll { $0.identityHash == candidate.identityHash }
+      let candidateIdentityHashes = Set(candidate.identityHashes)
+      nextState.links.removeAll { candidateIdentityHashes.contains($0.identityHash) }
       try await localStateStore.saveState(nextState)
       localState = nextState
       importFeedbackMessage = "Removed the Bubble link for \(candidate.displayName)."
@@ -867,6 +818,10 @@ final class AppModel: ObservableObject {
       : normalizedHandles.map(maskedHandle).joined(separator: " • ")
     let canonicalIdentityKey = "contact:\(contact.identifier)"
     let identityHash = try await localStateStore.identityHash(for: canonicalIdentityKey)
+    let identityAliases = try await handleIdentityAliases(
+      for: normalizedHandles,
+      excluding: [identityHash]
+    )
 
     return ImportCandidate(
       identityHash: identityHash,
@@ -874,6 +829,7 @@ final class AppModel: ObservableObject {
       displayName: contact.displayName,
       subtitle: subtitle,
       matchingHandles: normalizedHandles,
+      identityAliases: identityAliases,
       avatarJPEGData: contact.avatarJPEGData,
       lastSeenAt: lastSeenAt,
       sourceLabel: lastSeenAt == nil ? "Contacts" : "Messages + Contacts"
@@ -898,6 +854,7 @@ final class AppModel: ObservableObject {
       displayName: participant.handle,
       subtitle: maskedHandle(participant.handle),
       matchingHandles: [handle],
+      identityAliases: [],
       avatarJPEGData: nil,
       lastSeenAt: participant.lastSeenAt,
       sourceLabel: "Messages"
@@ -935,10 +892,78 @@ final class AppModel: ObservableObject {
         ? (current.subtitle.isEmpty ? next.subtitle : current.subtitle)
         : mergedHandles.map(maskedHandle).joined(separator: " • "),
       matchingHandles: mergedHandles,
+      identityAliases: mergedIdentityAliases(
+        current.identityAliases + next.identityAliases,
+        excluding: [current.identityHash]
+      ),
       avatarJPEGData: current.avatarJPEGData ?? next.avatarJPEGData,
       lastSeenAt: mergedDate,
       sourceLabel: mergedSourceLabel
     )
+  }
+
+  private func handleIdentityAliases(
+    for normalizedHandles: [String],
+    excluding excludedHashes: Set<String>
+  ) async throws -> [ImportIdentityAlias] {
+    var seen = excludedHashes
+    var aliases: [ImportIdentityAlias] = []
+
+    for handle in normalizedHandles {
+      let identityHash = try await localStateStore.identityHash(for: "handle:\(handle)")
+      guard seen.insert(identityHash).inserted else { continue }
+      aliases.append(
+        ImportIdentityAlias(
+          identityHash: identityHash,
+          maskedHandle: maskedHandle(handle),
+          source: "Messages handle"
+        )
+      )
+    }
+
+    return aliases
+  }
+
+  private func mergedIdentityAliases(
+    _ aliases: [ImportIdentityAlias],
+    excluding excludedHashes: Set<String>
+  ) -> [ImportIdentityAlias] {
+    var seen = excludedHashes
+    var merged: [ImportIdentityAlias] = []
+    for alias in aliases {
+      guard seen.insert(alias.identityHash).inserted else { continue }
+      merged.append(alias)
+    }
+    return merged
+  }
+
+  private func upsertLinks(
+    in state: inout LocalHelperState,
+    for candidate: ImportCandidate,
+    bubbleID: String,
+    bubbleName: String
+  ) {
+    upsertLink(
+      in: &state,
+      identityHash: candidate.identityHash,
+      bubbleID: bubbleID,
+      bubbleName: bubbleName,
+      displayName: candidate.displayName,
+      maskedHandle: candidate.matchingHandles.first.map(maskedHandle),
+      source: candidate.sourceLabel
+    )
+
+    for alias in candidate.identityAliases {
+      upsertLink(
+        in: &state,
+        identityHash: alias.identityHash,
+        bubbleID: bubbleID,
+        bubbleName: bubbleName,
+        displayName: candidate.displayName,
+        maskedHandle: alias.maskedHandle,
+        source: alias.source
+      )
+    }
   }
 
   private func upsertLink(
@@ -950,7 +975,6 @@ final class AppModel: ObservableObject {
     maskedHandle: String?,
     source: String
   ) {
-    state.ignored.removeAll { $0.identityHash == identityHash }
     if let index = state.links.firstIndex(where: { $0.identityHash == identityHash }) {
       state.links[index].bubbleId = bubbleID
       state.links[index].bubbleName = bubbleName

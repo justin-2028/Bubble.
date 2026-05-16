@@ -81,13 +81,10 @@ struct LocalIdentityLink: Codable, Hashable, Identifiable {
   var id: String { identityHash }
 }
 
-struct IgnoredIdentity: Codable, Hashable, Identifiable {
+struct ImportIdentityAlias: Hashable {
   let identityHash: String
-  var displayName: String
-  var maskedHandle: String?
-  var updatedAt: Date
-
-  var id: String { identityHash }
+  let maskedHandle: String?
+  let source: String
 }
 
 struct LocalHelperState: Codable, Equatable {
@@ -95,7 +92,6 @@ struct LocalHelperState: Codable, Equatable {
   var lastProcessedMessageRowID: Int64 = 0
   var lastSyncAt: Date?
   var links: [LocalIdentityLink] = []
-  var ignored: [IgnoredIdentity] = []
   var lastSyncedInteractionDays: [String: String] = [:]
 
   private enum CodingKeys: String, CodingKey {
@@ -103,7 +99,6 @@ struct LocalHelperState: Codable, Equatable {
     case lastProcessedMessageRowID
     case lastSyncAt
     case links
-    case ignored
     case lastSyncedInteractionDays
   }
 
@@ -115,7 +110,6 @@ struct LocalHelperState: Codable, Equatable {
     lastProcessedMessageRowID = try container.decodeIfPresent(Int64.self, forKey: .lastProcessedMessageRowID) ?? 0
     lastSyncAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncAt)
     links = try container.decodeIfPresent([LocalIdentityLink].self, forKey: .links) ?? []
-    ignored = try container.decodeIfPresent([IgnoredIdentity].self, forKey: .ignored) ?? []
     lastSyncedInteractionDays =
       try container.decodeIfPresent([String: String].self, forKey: .lastSyncedInteractionDays) ?? [:]
   }
@@ -182,11 +176,23 @@ struct ImportCandidate: Identifiable, Hashable {
   let displayName: String
   let subtitle: String
   let matchingHandles: [String]
+  let identityAliases: [ImportIdentityAlias]
   let avatarJPEGData: Data?
   let lastSeenAt: Date?
   let sourceLabel: String
 
   var id: String { identityHash }
+
+  var identityHashes: [String] {
+    var seen = Set<String>()
+    var hashes: [String] = []
+    for hash in [identityHash] + identityAliases.map(\.identityHash) {
+      if seen.insert(hash).inserted {
+        hashes.append(hash)
+      }
+    }
+    return hashes
+  }
 }
 
 struct RecentMessageParticipant: Hashable {
@@ -237,6 +243,5 @@ enum MessagesAccessState: String {
 
 enum CandidateStatus: Equatable {
   case linked(LocalIdentityLink)
-  case ignored(IgnoredIdentity)
   case unlinked
 }

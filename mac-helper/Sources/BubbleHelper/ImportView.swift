@@ -55,20 +55,23 @@ struct ImportView: View {
 
       Divider()
 
-      VStack(alignment: .leading, spacing: 18) {
-        if let candidate = model.selectedCandidate {
-          selectedCandidatePanel(candidate)
-        } else {
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Select A Person")
-              .font(.title2.weight(.semibold))
-            Text("Search on the left, then choose whether to create a new Bubble or link the person to one you already have.")
-              .foregroundStyle(.secondary)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          if let candidate = model.selectedCandidate {
+            selectedCandidatePanel(candidate)
+          } else {
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Select A Person")
+                .font(.title2.weight(.semibold))
+              Text("Search on the left, then choose whether to create a new Bubble or link the person to one you already have.")
+                .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
           }
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
       }
-      .padding(24)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     .toolbar {
@@ -216,22 +219,12 @@ struct ImportView: View {
               await model.unlinkSelection()
             }
           }
-        case .ignored:
-          Button("Resume Suggestions") {
-            Task {
-              await model.resumeSelection()
-            }
-          }
         case .unlinked:
-          Button("Ignore For Now") {
-            Task {
-              await model.ignoreSelection()
-            }
-          }
+          EmptyView()
         }
       }
 
-      Spacer(minLength: 0)
+      EmptyView()
     }
   }
 
@@ -243,12 +236,6 @@ struct ImportView: View {
         title: "Linked",
         detail: "\(candidate.displayName) is already linked to Bubble “\(link.bubbleName)”.",
         tint: .green
-      )
-    case .ignored:
-      statusCallout(
-        title: "Ignored",
-        detail: "This person is hidden from suggestions until you resume them.",
-        tint: .orange
       )
     case .unlinked:
       statusCallout(
@@ -322,8 +309,6 @@ private struct CandidateRow: View {
     switch status {
     case .linked:
       badge("Linked", color: .green)
-    case .ignored:
-      badge("Ignored", color: .orange)
     case .unlinked:
       badge("New", color: .blue)
     }

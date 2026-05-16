@@ -37,7 +37,7 @@ struct MenuContentView: View {
 
       HStack(spacing: 12) {
         statCard(title: "Linked", value: "\(model.linkedCount)")
-        statCard(title: "Ignored", value: "\(model.ignoredCount)")
+        statCard(title: "Identities", value: "\(model.identityLinkCount)")
       }
 
       Divider()

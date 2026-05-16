@@ -109,7 +109,7 @@ struct SettingsView: View {
         statusRow(title: "State", value: model.statusTitle)
         statusRow(title: "Detail", value: model.statusDetail)
         statusRow(title: "Linked people", value: "\(model.linkedCount)")
-        statusRow(title: "Ignored people", value: "\(model.ignoredCount)")
+        statusRow(title: "Linked local identities", value: "\(model.identityLinkCount)")
         statusRow(
           title: "Last sync",
           value: model.localState.lastSyncAt.map { relativeDateDescription($0) } ?? "Never"
