@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation';
+import Image from 'next/image';
 import { LoginForm } from '@/components/auth/LoginForm';
+import { DangerZone } from '@/components/visual/DangerZone';
 import { getSession } from '@/lib/server/auth';
-import { getAdminUsername, isAuthConfigured, isSessionConfigured } from '@/lib/server/env';
+import { isAuthConfigured, isSessionConfigured } from '@/lib/server/env';
 
 export default function LoginPage() {
   const session = getSession();
@@ -14,33 +16,54 @@ export default function LoginPage() {
 
   return (
     <main className="relative min-h-screen overflow-hidden white-gradient">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.75),transparent_45%),radial-gradient(circle_at_bottom_right,rgba(229,229,229,0.65),transparent_42%)]" />
-      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6 py-10">
-        <div className="grid w-full max-w-5xl gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-          <section className="glass rounded-[32px] p-8 lg:p-10">
-            <div className="text-sm font-nav uppercase tracking-[0.18em] text-gray-500">Bubble Garden</div>
-            <h1 className="mt-5 max-w-xl font-display text-4xl tracking-tight-display text-gray-950 lg:text-6xl">
-              Hosted Bubble, private by design.
-            </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-gray-700 lg:text-lg">
-              Your Bubble data lives behind login, while the future Mac helper will keep iMessage identifiers and
-              message-derived metadata local to your machine.
-            </p>
-            <div className="mt-8 grid gap-3 text-sm text-gray-700 lg:max-w-xl">
-              <div className="glass rounded-2xl px-4 py-3">
-                Browser data stays limited to the Bubble fields you actually want everywhere.
-              </div>
-              <div className="glass rounded-2xl px-4 py-3">
-                Helper tokens are generated from inside Bubble and can be revoked at any time.
-              </div>
-              <div className="glass rounded-2xl px-4 py-3">
-                Fonts are now self-hosted through Next.js instead of fetched from Google at runtime.
-              </div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(255,255,255,0.92),transparent_34%),radial-gradient(circle_at_88%_76%,rgba(255,168,151,0.24),transparent_28%),radial-gradient(circle_at_62%_28%,rgba(255,255,255,0.82),transparent_30%)]" />
+      <DangerZone />
+
+      <div className="absolute left-[12%] top-[18%] hidden h-24 w-24 rounded-full border border-white/80 bg-white/60 shadow-[0_18px_48px_rgba(0,0,0,0.16)] backdrop-blur-md lg:block" />
+      <div className="absolute left-[39%] top-[62%] hidden h-16 w-16 rounded-full border border-white/80 bg-white/55 shadow-[0_16px_38px_rgba(0,0,0,0.14)] backdrop-blur-md lg:block" />
+      <div className="absolute right-[24%] top-[18%] hidden h-12 w-12 rounded-full border border-white/80 bg-white/70 shadow-[0_14px_32px_rgba(0,0,0,0.12)] backdrop-blur-md md:block" />
+
+      <div className="relative z-20 mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-10">
+        <div className="grid w-full items-center gap-8 lg:grid-cols-[1.08fr_0.92fr]">
+          <section className="relative min-h-[520px]">
+            <div className="glass inline-flex rounded-2xl px-5 py-2">
+              <span className="font-display text-4xl leading-none tracking-tight-display text-gray-950 sm:text-6xl">
+                Bubble
+              </span>
             </div>
+
+            <div className="mt-8 max-w-2xl">
+              <h1 className="font-display text-5xl leading-[0.9] tracking-tight-display text-gray-950 sm:text-7xl lg:text-8xl">
+                Private garden.
+                <br />
+                Yours only.
+              </h1>
+              <p className="mt-6 max-w-xl text-lg leading-8 text-gray-700">
+                Bubble is privacy-centric, so this hosted page belongs to one person. If this is not your Bubble,
+                make your own instance instead of signing in here.
+              </p>
+            </div>
+
+            <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-3">
+              {['Make a copy', 'Add your login', 'Connect Mac helper'].map((step, index) => (
+                <div key={step} className="glass rounded-2xl px-4 py-3">
+                  <div className="font-nav text-xs uppercase tracking-[0.16em] text-gray-500">Step {index + 1}</div>
+                  <div className="mt-1 font-nav tracking-tight-ui text-gray-900">{step}</div>
+                </div>
+              ))}
+            </div>
+
+            <Image
+              src="/newbubblewand.png"
+              alt=""
+              width={232}
+              height={420}
+              priority
+              className="pointer-events-none absolute -bottom-16 right-0 hidden h-[360px] w-auto drop-shadow-[0_20px_30px_rgba(0,0,0,0.18)] lg:block"
+            />
           </section>
 
           <LoginForm
-            defaultUsername={getAdminUsername()}
             authConfigured={authConfigured}
             sessionConfigured={sessionConfigured}
           />
