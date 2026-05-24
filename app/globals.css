@@ -185,7 +185,7 @@ body {
   opacity: 0;
   transform-origin: 100vw 100vh;
   will-change: transform, opacity, filter;
-  animation: loginFlowIn 1100ms var(--flow-delay, 0ms) cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: loginFlowIn 1100ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes loginFlowIn {

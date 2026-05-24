@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation';
-import type { CSSProperties } from 'react';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { LoginWandScene } from '@/components/auth/LoginWandScene';
 import { DangerZone } from '@/components/visual/DangerZone';
@@ -24,19 +23,19 @@ export default function LoginPage() {
       <div className="relative z-20 mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-10">
         <div className="grid w-full items-center gap-8 lg:grid-cols-[1.08fr_0.92fr]">
           <section className="relative min-h-[520px]">
-            <div className="login-flow-in glass inline-flex rounded-2xl px-5 py-2 [--flow-delay:120ms]">
+            <div className="login-flow-in glass inline-flex rounded-2xl px-5 py-2">
               <span className="font-display text-4xl leading-none tracking-tight-display text-gray-950 sm:text-6xl">
                 Bubble
               </span>
             </div>
 
             <div className="mt-8 max-w-2xl">
-              <h1 className="login-flow-in font-display text-5xl leading-[0.9] tracking-tight-display text-gray-950 sm:text-7xl lg:text-8xl [--flow-delay:220ms]">
+              <h1 className="login-flow-in font-display text-5xl leading-[0.9] tracking-tight-display text-gray-950 sm:text-7xl lg:text-8xl">
                 Private garden.
                 <br />
                 Yours only.
               </h1>
-              <p className="login-flow-in mt-6 max-w-xl text-lg leading-8 text-gray-700 [--flow-delay:340ms]">
+              <p className="login-flow-in mt-6 max-w-xl text-lg leading-8 text-gray-700">
                 Bubble is privacy-centric, so this hosted page belongs to one person. If this is not your Bubble,
                 make your own instance instead of signing in here.
               </p>
@@ -47,7 +46,6 @@ export default function LoginPage() {
                 <div
                   key={step}
                   className="login-flow-in glass rounded-2xl px-4 py-3"
-                  style={{ '--flow-delay': `${460 + index * 90}ms` } as CSSProperties}
                 >
                   <div className="font-nav text-xs uppercase tracking-[0.16em] text-gray-500">Step {index + 1}</div>
                   <div className="mt-1 font-nav tracking-tight-ui text-gray-900">{step}</div>

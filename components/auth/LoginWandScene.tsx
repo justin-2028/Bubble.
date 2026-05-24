@@ -7,17 +7,14 @@ const orbs = [
   {
     className: 'left-[12%] top-[18%] hidden h-24 w-24 lg:block',
     initial: { x: 640, y: 420, scale: 0.2 },
-    delay: 0.18,
   },
   {
     className: 'left-[39%] top-[62%] hidden h-16 w-16 lg:block',
     initial: { x: 430, y: 210, scale: 0.25 },
-    delay: 0.3,
   },
   {
     className: 'right-[24%] top-[18%] hidden h-12 w-12 md:block',
     initial: { x: 160, y: 420, scale: 0.3 },
-    delay: 0.42,
   },
 ];
 
@@ -53,20 +50,13 @@ export function LoginWandScene() {
                 }
           }
           transition={{
-            delay: orb.delay,
             duration: 1.25,
             ease: [0.16, 1, 0.3, 1],
           }}
         />
       ))}
 
-      {!reduceMotion && (
-        <>
-          {[0, 0.18, 0.36].map((delay) => (
-            <LoginGust key={delay} delay={delay} />
-          ))}
-        </>
-      )}
+      {!reduceMotion && <LoginGust />}
 
       <motion.div
         className="fixed -bottom-32 -right-10 h-[360px] w-[222px] sm:-bottom-36 sm:-right-6 sm:h-[430px] sm:w-[265px] lg:-bottom-40 lg:right-0 lg:h-[520px] lg:w-[320px]"
@@ -87,7 +77,7 @@ export function LoginWandScene() {
   );
 }
 
-function LoginGust({ delay }: { delay: number }) {
+function LoginGust() {
   return (
     <motion.svg
       className="fixed bottom-[160px] right-[0px] hidden h-[200px] w-[360px] lg:block"
@@ -95,7 +85,7 @@ function LoginGust({ delay }: { delay: number }) {
       fill="none"
       initial={{ opacity: 0, x: 10, y: 0 }}
       animate={{ opacity: [0, 1, 0.85, 0], x: [-120], y: [-8] }}
-      transition={{ duration: 1.4, delay, ease: 'easeOut' }}
+      transition={{ duration: 1.4, ease: 'easeOut' }}
     >
       <defs>
         <linearGradient id="loginGustStroke" x1="1" y1="0" x2="0" y2="0">
@@ -117,7 +107,7 @@ function LoginGust({ delay }: { delay: number }) {
           strokeLinecap="round"
           initial={{ pathLength: 0, pathOffset: 1 }}
           animate={{ pathLength: 1, pathOffset: 0 }}
-          transition={{ duration: 1.1, delay: delay + 0.05, ease: 'easeOut' }}
+          transition={{ duration: 1.1, ease: 'easeOut' }}
         />
         <motion.path
           d="M340 112 C 300 104, 260 110, 215 120 S 110 142, 10 136"
@@ -128,7 +118,7 @@ function LoginGust({ delay }: { delay: number }) {
           strokeLinecap="round"
           initial={{ pathLength: 0, pathOffset: 1 }}
           animate={{ pathLength: 1, pathOffset: 0 }}
-          transition={{ duration: 1.15, delay: delay + 0.07, ease: 'easeOut' }}
+          transition={{ duration: 1.15, ease: 'easeOut' }}
         />
         <motion.path
           d="M340 88 C 302 82, 262 86, 222 96 S 128 114, 24 108"
@@ -139,7 +129,7 @@ function LoginGust({ delay }: { delay: number }) {
           strokeLinecap="round"
           initial={{ pathLength: 0, pathOffset: 1 }}
           animate={{ pathLength: 1, pathOffset: 0 }}
-          transition={{ duration: 1.05, delay: delay + 0.02, ease: 'easeOut' }}
+          transition={{ duration: 1.05, ease: 'easeOut' }}
         />
       </g>
     </motion.svg>

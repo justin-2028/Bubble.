@@ -47,7 +47,7 @@ export function LoginForm({ authConfigured, sessionConfigured }: Props) {
   };
 
   return (
-    <section className="login-flow-in glass relative h-fit overflow-hidden rounded-[32px] p-6 [--flow-delay:720ms] lg:p-8">
+    <section className="login-flow-in glass relative h-fit overflow-hidden rounded-[32px] p-6 lg:p-8">
       <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full border border-white/80 bg-white/50 shadow-[0_16px_38px_rgba(0,0,0,0.12)]" />
       <div className="pointer-events-none absolute -bottom-12 left-10 h-20 w-20 rounded-full border border-white/80 bg-white/40 shadow-[0_14px_34px_rgba(0,0,0,0.1)]" />
 
