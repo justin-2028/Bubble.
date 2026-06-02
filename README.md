@@ -122,3 +122,6 @@ If you do not want iMessage-based automation, you do not need the helper.
 
 - Treat your Bubble deployment as personal infrastructure, not a shared social app. Do not give another person access to your Bubble instance.
 - Do not share your admin username, password, session secret, storage secret, database URL, or helper tokens.
+
+### AI Usage
+- OpenAI Codex was used throughout the entire project, with manual checking of suggested code and commands.
