@@ -17,3 +17,5 @@ coverage
 .swift-module-cache
 mac-helper/.build
 mac-helper/.swiftpm
+
+mac-helper/mac-helper/.build
