@@ -15,13 +15,15 @@ So, this is what I made, **for myself**.<br/><br/>
 
 ---
 
-## New user? Install your own Bubble.
+# New User?
 
-Bubble is privacy-first and currently designed as a **single-owner private app**, not a shared public service. The hosted `bubble.garden` instance belongs to one person, so new users should not sign into it or expect to create their own separate account there.
+## Installing Your Own Bubble
 
-That is intentional. Bubble stores personal relational data: names, categories, friend groups, photos, last-interaction dates, and, if you use the Mac helper, local iMessage-derived identity links. That kind of data can reveal who matters to you, how often you talk to them, and which relationships you are trying to maintain. Bubble is therefore built around the assumption that each person should control their own deployment, login, storage, helper tokens, and local permissions.
+Bubble is privacy-first and currently designed as a **single-owner private app**, not a shared public service. The hosted `bubble.garden` instance belongs to one person (me, the owner), so new users should not sign into it or expect to create their own separate account there.
 
-If you want to use Bubble, make your own private Bubble instance.
+Yes, this is intentional. I understand that this makes the project much harder for others to set up and use, but I'm very conscious about security and paranoid about online privacy. Bubble stores personal relational data like names, categories, friend groups, photos, last-interaction dates, and, if you use the Mac helper, local iMessage-derived identity links. That kind of data matters A LOT and reveals who matters to you, how often you talk to them, and which relationships you are trying to maintain. Bubble is therefore built around the assumption that each person should control their own deployment, login, storage, helper tokens, and local permissions.
+
+If you want to use Bubble, make your own private Bubble instance by forking this project and following the instructions below :)
 
 ### What you need
 
@@ -116,7 +118,5 @@ If you do not want iMessage-based automation, you do not need the helper.
 
 ### Security notes
 
-- Treat your Bubble deployment as personal infrastructure, not a shared social app.
+- Treat your Bubble deployment as personal infrastructure, not a shared social app. Do not give another person access to your Bubble instance.
 - Do not share your admin username, password, session secret, storage secret, database URL, or helper tokens.
-- Do not give another person access to your Bubble instance unless you are comfortable giving them access to your relationship data.
-- If you want multiple people to use Bubble safely from one public site, Bubble would need a separate multi-user account system with per-user storage isolation. That is a larger architecture than this current single-owner version.
