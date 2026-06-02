@@ -21,9 +21,11 @@ So, this is what I made, **for myself**.<br/><br/>
 
 Bubble is privacy-first and currently designed as a **single-owner private app**, not a shared public service. The hosted `bubble.garden` instance belongs to one person (me, the owner), so new users should not sign into it or expect to create their own separate account there.
 
-Yes, this is intentional. I understand that this makes the project much harder for others to set up and use, but I'm very conscious about security and paranoid about online privacy. Bubble stores personal relational data like names, categories, friend groups, photos, last-interaction dates, and, if you use the Mac helper, local iMessage-derived identity links. That kind of data matters A LOT and reveals who matters to you, how often you talk to them, and which relationships you are trying to maintain. Bubble is therefore built around the assumption that each person should control their own deployment, login, storage, helper tokens, and local permissions.
+Yes, this is intentional. I understand that this makes the project much harder for others to set up and use, but I'm very conscious about security and paranoid about online privacy. 
 
-If you want to use Bubble, make your own private Bubble instance by forking this project and following the instructions below :)
+Bubble stores personal relational data like names, categories, friend groups, photos, last-interaction dates, and, if you use the Mac helper, local iMessage-derived identity links. That kind of data matters A LOT and reveals who matters to you, how often you talk to them, and which relationships you are trying to maintain. 
+
+Bubble is therefore built around the assumption that each person should control their own deployment, login, storage, helper tokens, and local permissions. If you want to use Bubble, make your own private Bubble instance by forking this project and following the instructions below :)
 
 ### What you need
 
